@@ -13,7 +13,7 @@ __all__ = [
     'stat',
     'util',
 
-    'common',
+    'aer_tools',
     ]
 
 from . import ceda_io, data, inst, lblrtm, met, planck, plot, stat, util
