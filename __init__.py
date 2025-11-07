@@ -12,6 +12,9 @@ __all__ = [
     'plot',
     'stat',
     'util',
+
+    'common',
     ]
 
 from . import ceda_io, data, inst, lblrtm, met, planck, plot, stat, util
+from . import aer_tools

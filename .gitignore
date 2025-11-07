@@ -1,0 +1,4 @@
+*.pyc
+*-checkpoint.py
+*test*.py
+all_*.py

@@ -7,12 +7,12 @@ import re
 import datetime as dt
 
 # path to the directory containing AER 'RC_utils.py' file used for reading Fortran binary files
-aer_common_path = '/net/thunder/users/bjp224/common'
-sys.path.append(aer_common_path)
+# aer_common_path = '/net/thunder/users/bjp224/common'
+# sys.path.append(aer_common_path)
 from . import panel_file as pf_rd
 from . import util
 from .write_tape_5_BP import write_tape5
-import RC_utils
+from .aer_tools import RC_utils
 
 _lblpath = '/net/thunder/users/bjp224/lblrtm_12.17/'
 

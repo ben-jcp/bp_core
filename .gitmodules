@@ -1,0 +1,3 @@
+[submodule "aer_tools"]
+	path = aer_tools
+	url = https://github.com/ben-jcp/aer_tools.git
