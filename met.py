@@ -1,6 +1,7 @@
 import numpy as np
 import xarray as xr
 import datetime as dt
+import pandas as pd
 from . import ceda_io, data, util
 
 g_0 = 9.80665  # m s-2, standard gravity
@@ -349,7 +350,12 @@ def hypsometric_altitudes(pressure_fl, pressure_hl, temperature, wv_mmr, sfc_alt
 
 def add_altitudes_era(profile):
     # add calculated altitudes to standard ERA5 model level profile
-    
+
+    # if pressures ascending, sort to have descending instead, for hypsometric calculation
+    # maybe should have this done automatically in hypsometric_altitudes()
+    if np.all( np.diff(profile['p'].values) > 0 ):
+        profile = profile.sortby(['p','p_half'], ascending=False)
+
     altitudes, altitudes_hl = hypsometric_altitudes(profile.p.values, profile.p_half.values,
                                                     profile.t.values, profile.q.values,
                                                     profile.z.values, half_lvls=True)
@@ -1119,205 +1125,245 @@ def era_profile_following_sonde(sonde_fp, ):
 
 
 
-# def sonde_era_station_hybrid(filepath_sonde, filepath_met, n_layers, spacing, vertical_coord, heights_to_drop=[7.1, 4.35, 3.5, 1.5]):
+def sonde_era_station_hybrid(filepath_sonde, filepath_met, n_layers, spacing, vertical_coord, meas_centre_datetime, seconds_to_avg=150,
+                             sfc_altitude=0.130, heights_to_drop=[1.5, 3.5, 4.35, 7.1], drop_lo_era=True):
 
-#     local_met_ds = xr.load_dataset(filepath_met)
-#     met_ds_subset_avg = data.dataset_time_subset(local_met_ds, meas_centre_datetime, seconds_to_avg).mean('time')
+    sentinel_lat, sentinel_lon = 45.535021, -73.149006
 
-#     heights_to_drop = [7.1, 4.35, 3.5, 1.5]
+    # loading processed met dataset, time-averaging across subset
+    local_met_ds = xr.load_dataset(filepath_met)
+    met_ds_subset = data.dataset_time_subset(local_met_ds, meas_centre_datetime, seconds_to_avg)
+    met_ds_subset_avg = met_ds_subset.mean('time')
 
-#     req_heights_avgs_raw = met_ds_subset_avg.sel(height_agl=[val for val in local_met_ds.height_agl.values if val not in heights_to_drop])
+    # selecting retained heights, converting temperature and humidity values
+    req_heights_avgs_raw = met_ds_subset_avg.sel(height_agl=[val for val in local_met_ds.height_agl.values if val not in heights_to_drop])
+    req_heights_avgs_raw = req_heights_avgs_raw.sortby(['height_agl'], ascending=True)
 
-#     sentinel_temps = req_heights_avgs_raw['temperature'] + 273.15
-#     sentinel_wv_mmrs = 1.e3 * convert_rh_to_mass_mixing_ratio(req_heights_avgs_raw['rel_hum'], req_heights_avgs_raw['pressure'].values, sentinel_temps)
+    sentinel_temps = req_heights_avgs_raw['temperature'] + 273.15
+    sentinel_wv_mmrs = 1.e3 * convert_rh_to_mass_mixing_ratio(req_heights_avgs_raw['rel_hum'], req_heights_avgs_raw['pressure'].values, sentinel_temps)
 
-#     sonde_data = data.load_radiosonde_nc(filepath_sonde)
+    sentinel_mean_time = met_ds_subset.time.mean().values
+    sentinel_rdgs = met_ds_subset.time.size
 
-#     early_slice = slice(0,6)
+    sonde_data = data.load_radiosonde_nc(filepath_sonde)
 
-#     low_sonde_pressures = sonde_data['PRESSURE_INSITU'].values[early_slice]
-#     low_sonde_altitudes = 1.e-3 * sonde_data['ALTITUDE'].values[early_slice]
+    # using radiosonde p(z) scale near-surface (linear fit) to calculate p(z) for sentinel measurements
+    early_slice = slice(0,6)
+    low_sonde_pressures = sonde_data['PRESSURE_INSITU'].values[early_slice]
+    low_sonde_altitudes = 1.e-3 * sonde_data['ALTITUDE'].values[early_slice]
 
-#     p_with_z_sonde = np.polyfit(low_sonde_altitudes, low_sonde_pressures, 1)
+    p_with_z_sonde = np.polyfit(low_sonde_altitudes, low_sonde_pressures, 1)
 
-#     sentinel_alts = 1.e-3 * sentinel_temps['height_agl'].values + sfc_altitude
-#     sentinel_pressures = np.polyval(p_with_z_sonde, sentinel_alts)
+    sentinel_alts = 1.e-3 * req_heights_avgs_raw['height_agl'].values + sfc_altitude
+    sentinel_pressures = np.polyval(p_with_z_sonde, sentinel_alts)
 
-#     p_sonde = sonde_data['PRESSURE_INSITU'].values
-#     t_sonde = sonde_data['TEMPERATURE_INSITU'].values + 273.15  # convert degC to K
-#     z_sonde = 1.e-3 * sonde_data['ALTITUDE'].values  # convert m to km
-#     wv_mmr_sonde = 1.e3 * convert_rh_to_mass_mixing_ratio(sonde_data['HUMIDITY.RELATIVE_INSITU'], p_sonde, t_sonde)
-#     sonde_time = sonde_data['time'].values
-#     sonde_lat = sonde_data['LATITUDE'].values
-#     sonde_lon = sonde_data['LONGITUDE'].values
+    # loading and converting radiosonde data
+    p_sonde = sonde_data['PRESSURE_INSITU'].values
+    t_sonde = sonde_data['TEMPERATURE_INSITU'].values + 273.15  # convert degC to K
+    z_sonde = 1.e-3 * sonde_data['ALTITUDE'].values  # convert m to km
+    wv_mmr_sonde = 1.e3 * convert_rh_to_mass_mixing_ratio(sonde_data['HUMIDITY.RELATIVE_INSITU'], p_sonde, t_sonde)
+    sonde_time = sonde_data['time'].values
+    sonde_lat = sonde_data['LATITUDE'].values
+    sonde_lon = sonde_data['LONGITUDE'].values
 
-#     vertical_coord = vertical_coord.casefold().strip()
-#     # making sure that pressures/altitudes of radiosonde data don't overlap with sentinel
-#     if vertical_coord in ['pressure', 'p']:
-#         vc_label = 'PRESSURE_INSITU'
-#         non_sentinel_mask = p_sonde < sentinel_pressures.min()
-#     elif vertical_coord in ['altitude', 'z']:
-#         vc_label = 'ALTITUDE'
-#         non_sentinel_mask = z_sonde > sentinel_alts.max()
+    vertical_coord = vertical_coord.casefold().strip()
+    # making sure that pressures/altitudes of radiosonde data don't overlap with sentinel
+    if vertical_coord in ['pressure', 'p']:
+        vc_label = 'PRESSURE_INSITU'
+        sentinel_vert_min, sentinel_vert_max = np.min(sentinel_pressures), np.max(sentinel_pressures)
+        non_sentinel_mask = p_sonde < sentinel_pressures.min()
+    elif vertical_coord in ['altitude', 'z']:
+        vc_label = 'ALTITUDE'
+        sentinel_vert_min, sentinel_vert_max = 1.e3 * ( np.min(sentinel_alts), np.max(sentinel_alts) )
+        non_sentinel_mask = z_sonde > sentinel_alts.max()
 
-#     sonde_vert_min, sonde_vert_max = sonde_data[vc_label].values[non_sentinel_mask].min(), sonde_data[vc_label].values[non_sentinel_mask].max()
+    sonde_vert_min, sonde_vert_max = sonde_data[vc_label].values[non_sentinel_mask].min(), sonde_data[vc_label].values[non_sentinel_mask].max()
 
-#     # defining levels (i.e. layer boundaries)
-#     spacing = spacing.casefold().strip()
-#     if spacing == 'linear' or spacing == 'lin':
-#         level_heights = np.linspace(sonde_vert_min, sonde_vert_max, n_layers+1)
-#     elif spacing == 'log':
-#         # will work as expected for altitude vert coord, but NB for pressure gives more layers near TOA
-#         level_heights = np.logspace(np.log10(sonde_vert_min), np.log10(sonde_vert_max), n_layers+1)
-#     elif spacing == 'custom_brb' and vc_label == 'PRESSURE_INSITU':
-#         alpha = 1.45
-#         level_heights = sonde_vert_max - (sonde_vert_max - sonde_vert_min) * (np.arange(n_layers+1) / n_layers) ** alpha
+    # defining levels (i.e. layer boundaries)
+    spacing = spacing.casefold().strip()
+    if spacing == 'linear' or spacing == 'lin':
+        level_heights = np.linspace(sonde_vert_min, sonde_vert_max, n_layers+1)
+    elif spacing == 'log':
+        # will work as expected for altitude vert coord, but NB for pressure gives more layers near TOA
+        level_heights = np.logspace(np.log10(sonde_vert_min), np.log10(sonde_vert_max), n_layers+1)
+    elif spacing == 'custom_brb' and vc_label == 'PRESSURE_INSITU':
+        alpha = 1.45
+        level_heights = sonde_vert_max - (sonde_vert_max - sonde_vert_min) * (np.arange(n_layers+1) / n_layers) ** alpha
 
-#     p, t, z, wv_mmr, n_readings = np.zeros((5, n_layers,))
-#     sonde_times_avg, sonde_lats_avg, sonde_lons_avg = np.zeros((3, n_layers,))
+    # initalising arrays to store averaged radiosonde data
+    p, t, z, wv_mmr, n_readings = np.zeros((5, n_layers,))
+    sonde_times_avg, sonde_lats_avg, sonde_lons_avg = np.zeros((3, n_layers,))
+    sonde_times_avg = sonde_times_avg.astype('<M8[us]')
 
-#     for i in range(n_layers):
-#         # mask to select sonde datapoints within range of pressures
-#         vert_coords = sonde_data[vc_label].values
-#         if vc_label == 'PRESSURE_INSITU':
-#             level_heights = np.sort(level_heights)[::-1]
-#             layer_bounds = np.flip(level_heights[i:i+2])
-#         else:
-#             layer_bounds = level_heights[i:i+2]
+    for i in range(n_layers):
+        # mask to select sonde datapoints within range of pressures
+        vert_coords = sonde_data[vc_label].values
+        if vc_label == 'PRESSURE_INSITU':
+            level_heights = np.sort(level_heights)[::-1]
+            layer_bounds = np.flip(level_heights[i:i+2])
+        else:
+            layer_bounds = level_heights[i:i+2]
 
-#         mask_single_level = util.in_range(vert_coords, layer_bounds, incl=True)
+        mask_single_level = util.in_range(vert_coords, layer_bounds, incl=True)
 
-#         # averaging over variables
-#         p_fl = np.average(p_sonde[mask_single_level])
-#         t_fl = np.average(t_sonde[mask_single_level])
-#         z_fl = np.average(z_sonde[mask_single_level])
-#         wv_mmr_fl = np.average(wv_mmr_sonde[mask_single_level])
+        # averaging over variables
+        p_fl = np.average(p_sonde[mask_single_level])
+        t_fl = np.average(t_sonde[mask_single_level])
+        z_fl = np.average(z_sonde[mask_single_level])
+        wv_mmr_fl = np.average(wv_mmr_sonde[mask_single_level])
 
-#         n_fl = np.sum(mask_single_level)
+        n_fl = np.sum(mask_single_level)
 
-#         time_avg = np.average(sonde_time[mask_single_level].astype(int)).astype(sonde_time.dtype)
-#         lat_avg = np.average(sonde_lat[mask_single_level])
-#         lon_avg = np.average(sonde_lon[mask_single_level])
+        # time_avg = np.average(sonde_time[mask_single_level].astype(int)).astype(np.dtypes.DateTime64DType)
+        time_avg = pd.to_datetime( np.average(sonde_time[mask_single_level].astype(np.int64)), unit='us')
+        lat_avg = np.average(sonde_lat[mask_single_level])
+        lon_avg = np.average(sonde_lon[mask_single_level])
 
-#         p[i], t[i], z[i], wv_mmr[i], n_readings[i] = p_fl, t_fl, z_fl, wv_mmr_fl, n_fl
-#         sonde_times_avg[i], sonde_lats_avg[i], sonde_lons_avg[i] = time_avg, lat_avg, lon_avg
+        p[i], t[i], z[i], wv_mmr[i], n_readings[i] = p_fl, t_fl, z_fl, wv_mmr_fl, n_fl
+        sonde_times_avg[i], sonde_lats_avg[i], sonde_lons_avg[i] = time_avg, lat_avg, lon_avg
 
-#     # loading in relevant ERA5 for launch time and location
-#     # would need to rewrite here to have ERA5 following sonde, including check that sonde within data bounding box
-#     # would also need to add CAMS data at this step
-#     launch_time = str(sonde_data['time'].values[0])
-#     launch_coords = (sonde_data['LATITUDE'].values[0], sonde_data['LONGITUDE'].values[0])
+    sonde_times_avg = [str(time) for time in sonde_times_avg]
 
-#     era5_ds = profile_from_ml_era5_new(launch_time, point=launch_coords, attempt_download=False,
-#                                                tag='eastCanada', dl_area=[48, -77, 43, -70]).squeeze()
-#     era5_ds = era5_ds.sortby(['p','p_half'], ascending=False)
-#     era5_ds = add_altitudes_era(era5_ds)
+    # sonde_times_avg = sonde_times_avg.astype('<M8[ns]')
 
-#     # load in CAMS data and add to existing profile dataset
-#     cams_ghg_ds = ghg_profile_cams(launch_time, point=launch_coords, tag='eastCanada')
-#     era5_ds = merge_ghg_to_profile(era5_ds, cams_ghg_ds)
+    # loading in relevant ERA5 for launch time and location
+    # would need to rewrite here to have ERA5 following sonde, including check that sonde within data bounding box
+    # would also need to add CAMS data at this step
+    # launch_time = str(sonde_data['time'].values[0])
+    launch_time = meas_centre_datetime
+    launch_coords = (sonde_data['LATITUDE'].values[0], sonde_data['LONGITUDE'].values[0])
 
-#     era5_time = era5_ds.time.values
-#     era5_lat = era5_ds.latitude.values
-#     era5_lon = era5_ds.longitude.values
+    era5_ds = profile_from_ml_era5_new(launch_time, point=launch_coords, attempt_download=False,
+                                               tag='eastCanada', dl_area=[48, -77, 43, -70]).squeeze()
+    era5_ds = era5_ds.sortby(['p','p_half'], ascending=False)
+    era5_ds = add_altitudes_era(era5_ds)
+
+    # load in CAMS data and add to existing profile dataset
+    cams_ghg_ds = ghg_profile_cams(launch_time, point=launch_coords, tag='eastCanada')
+    era5_ds = merge_ghg_to_profile(era5_ds, cams_ghg_ds)
+
+    era5_time = era5_ds.time.values
+    era5_lat = era5_ds.latitude.values
+    era5_lon = era5_ds.longitude.values
     
-#     # FIRST: decide where ERA5 for all variables to be used
-#     # NEED TO EXCLUDE ERA LEVELS FROM BOTH SONDE AND SENTINEL
-#     if vertical_coord in ['pressure', 'p']:
-#         era_vc_label = 'p'
-#         low_range = (sonde_vert_max, 1100.)
-#         high_range = (0., sonde_vert_min)
-#     elif vertical_coord in ['altitude', 'z']:
-#         sonde_vert_min, sonde_vert_max = 1.e-3 * sonde_vert_min, 1.e-3 * sonde_vert_max
-#         era_vc_label = 'altitude'
-#         low_range = (0., sonde_vert_min - 0.01) # OFFSET ADDED 04-08-25 TO AVOID OVERLAPPING LAYERS when switching between p/z coordinates
-#         high_range = (sonde_vert_max, 100.)
+    # FIRST: decide where ERA5 for all variables to be used
+    # NEED TO EXCLUDE ERA LEVELS FROM BOTH SONDE AND SENTINEL
+    oa_vert_min = np.min([sonde_vert_min, sentinel_vert_min])
+    oa_vert_max = np.max([sonde_vert_max, sentinel_vert_max])
+    if vertical_coord in ['pressure', 'p']:
+        era_vc_label = 'p'
+        low_range = (oa_vert_max, 1100.)
+        high_range = (0., oa_vert_min)
+    elif vertical_coord in ['altitude', 'z']:
+        oa_vert_min, oa_vert_max = 1.e-3 * oa_vert_min, 1.e-3 * oa_vert_max
+        era_vc_label = 'altitude'
+        low_range = (0., oa_vert_min - 0.01) # OFFSET ADDED 04-08-25 TO AVOID OVERLAPPING LAYERS when switching between p/z coordinates
+        high_range = (oa_vert_max, 100.)
 
-#     lo_mask = util.in_range(era5_ds[era_vc_label].values, low_range)
-#     if drop_lo_era:
-#         # INCLUDE AN OPTION TO JUST ZERO OUT ERA5 BELOW
-#         lo_mask = np.full_like(lo_mask, False)
-#     hi_mask = util.in_range(era5_ds[era_vc_label].values, high_range)
+    lo_mask = util.in_range(era5_ds[era_vc_label].values, low_range)
+    if drop_lo_era:
+        # INCLUDE AN OPTION TO JUST ZERO OUT ERA5 BELOW
+        lo_mask = np.full_like(lo_mask, False)
+    hi_mask = util.in_range(era5_ds[era_vc_label].values, high_range)
 
-#     # NEED TO SORT SENTINEL THINGS CORRECTLY AND THEN ADD TO CONCATENATION
+    n_era_lo = np.sum(lo_mask)
+    n_era_hi = np.sum(hi_mask)
 
-#     # SECOND: take ERA5 top and bottom levels as they come
-#     # could write this as a 'nest arrays' function
-#     p_both_sources = np.concatenate([era5_ds['p'].values[lo_mask], p, era5_ds['p'].values[hi_mask]])
-#     t_both_sources = np.concatenate([era5_ds['t'].values[lo_mask], t, era5_ds['t'].values[hi_mask]])
-#     z_both_sources = np.concatenate([era5_ds['altitude'].values[lo_mask], z, era5_ds['altitude'].values[hi_mask]])
-#     wv_mmr_both_sources = np.concatenate([era5_ds['q'].values[lo_mask], wv_mmr, era5_ds['q'].values[hi_mask]])
+    n_sentinel = len(sentinel_pressures)
+    n_sonde = n_layers
+    # NEED TO SORT SENTINEL THINGS CORRECTLY AND THEN ADD TO CONCATENATION
 
-#     nan_array = np.full_like(era5_ds.p.values, np.nan)
-#     sonde_times_avg = np.concatenate([nan_array[lo_mask], sonde_times_avg, nan_array[hi_mask]])
-#     sonde_lats_avg = np.concatenate([nan_array[lo_mask], sonde_lats_avg, nan_array[hi_mask]])
-#     sonde_lons_avg = np.concatenate([nan_array[lo_mask], sonde_lons_avg, nan_array[hi_mask]])
-#     sonde_n_rdgs = np.concatenate([nan_array[lo_mask], n_readings, nan_array[hi_mask]])
+    # SECOND: take ERA5 top and bottom levels as they come
+    # could write this as a 'nest arrays' function
+    p_all_sources = np.concatenate([era5_ds['p'].values[lo_mask], sentinel_pressures, p, era5_ds['p'].values[hi_mask]])
+    t_all_sources = np.concatenate([era5_ds['t'].values[lo_mask], sentinel_temps, t, era5_ds['t'].values[hi_mask]])
+    z_all_sources = np.concatenate([era5_ds['altitude'].values[lo_mask], sentinel_alts, z, era5_ds['altitude'].values[hi_mask]])
+    wv_mmr_all_sources = np.concatenate([era5_ds['q'].values[lo_mask], sentinel_wv_mmrs, wv_mmr, era5_ds['q'].values[hi_mask]])
 
-#     sonde_bounds_p = [sonde_data['PRESSURE_INSITU'].values.max(), sonde_data['PRESSURE_INSITU'].values.min()]
-#     sonde_bounds_z = [1.e-3*sonde_data['ALTITUDE'].values.min(), 1.e-3*sonde_data['ALTITUDE'].values.max()]
+    nan_array = np.full_like(era5_ds.p.values, np.nan)
+    nat_array = np.full(len(era5_ds.p.values), 'NaT')
+    sentinel_avg_times = np.full(n_sentinel, sentinel_mean_time, dtype='<M8[us]')
+    sentinel_avg_times = [str(time) for time in sentinel_avg_times]
+    sentinel_lats = np.full(n_sentinel, sentinel_lat)
+    sentinel_lons = np.full(n_sentinel, sentinel_lon)
+    sentinel_n_rdgs = np.full(n_sentinel, sentinel_rdgs)
 
-#     data_source = np.full(len(p_both_sources), 'Radiosonde')
-#     data_source[np.isnan(sonde_times_avg)] = 'ERA5'
+    meas_times_avg = np.concatenate([nat_array[lo_mask], sentinel_avg_times, sonde_times_avg, nat_array[hi_mask]])
+    meas_times_avg = np.asarray(meas_times_avg, dtype=np.datetime64)
+    meas_lats_avg = np.concatenate([nan_array[lo_mask], sentinel_lats, sonde_lats_avg, nan_array[hi_mask]])
+    meas_lons_avg = np.concatenate([nan_array[lo_mask], sentinel_lons, sonde_lons_avg, nan_array[hi_mask]])
+    meas_n_rdgs = np.concatenate([nan_array[lo_mask], sentinel_n_rdgs, n_readings, nan_array[hi_mask]])
+    data_source = np.concatenate([np.full(n_era_lo, 'ERA5',),
+                                  np.full(n_sentinel, 'Sentinel HMP155A'),
+                                  np.full(n_sonde, 'Radiosonde iMet4'),
+                                  np.full(n_era_hi, 'ERA5')])
 
-#     # THIRD: add in skt, and o3 interpolated to vertical levels
-#     skintemp_era = era5_ds.skt.values
-#     o3_interp_era, co2_interp, co_interp, ch4_interp = data.nondim_interp(era5_ds, p_both_sources, 'p', ['o3', 'co2', 'co', 'ch4'])
+    sonde_bounds_p = [sonde_data['PRESSURE_INSITU'].values.max(), sonde_data['PRESSURE_INSITU'].values.min()]
+    sonde_bounds_z = [1.e-3*sonde_data['ALTITUDE'].values.min(), 1.e-3*sonde_data['ALTITUDE'].values.max()]
 
-#     # PROFILE: things as coord of pressure
-#     profile_ds = xr.Dataset(
-#         data_vars={
-#         't': (['p'], t_both_sources),
-#         'z': (['p'], z_both_sources),
-#         'q': (['p'], wv_mmr_both_sources),
-#         'o3': (['p'], o3_interp_era),
-#         'co2': (['p'], co2_interp),
-#         'co': (['p'], co_interp),
-#         'ch4': (['p'], ch4_interp),
-#         'skt': (skintemp_era),
-#         'data_source': (['p'], data_source),
-#         'sonde_time': (['p'], sonde_times_avg),
-#         'sonde_latitude': (['p'], sonde_lats_avg),
-#         'sonde_longitude': (['p'], sonde_lons_avg),
-#         'sonde_readings': (['p'], sonde_n_rdgs),
-#         'era5_time': (era5_time),
-#         'era5_latitude': (era5_lat),
-#         'era5_longitude': (era5_lon),
-#         'sonde_bounds_press': (sonde_bounds_p),
-#         'sonde_bounds_alt': (sonde_bounds_z),
-#         },
-#         coords={
-#         'p':(p_both_sources),
-#         }
-#     )
+    # data_source = np.full(len(p_all_sources), 'Radiosonde')
+    # data_source[np.isnan(meas_times_avg)] = 'ERA5'
 
-#     attrs_dict = {
-#         'p':    {'units':'hPa', 'long_name':'pressure',},
-#         't':    {'units':'K', 'long_name':'temperature', 'standard_name':'air_temperature'},
-#         'z':    {'units':'km', 'long_name':'geometric altitude', 'standard_name':'altitude'},
-#         'q':    {'units':'g kg**-1', 'long_name':'water vapour mass mixing ratio', 'standard_name':'humidity_mixing_ratio'},
-#         'o3':   {'units':'g kg**-1', 'long_name':'ozone mass mixing ratio', 'standard_name':'mass_fraction_of_ozone_in_air'},
-#         'co2':   {'units':'g kg**-1', 'long_name':'carbon dioxide mass mixing ratio'},
-#         'co':   {'units':'g kg**-1', 'long_name':'carbon monoxide mass mixing ratio'},
-#         'ch4':   {'units':'g kg**-1', 'long_name':'methane mass mixing ratio'},
-#         'skt':  {'units':'K', 'long_name':'skin temperature',},
-#         'sonde_time':     {'long_name':'radiosonde averaged time',},
-#         'sonde_latitude': {'units':'degrees_north', 'long_name':'radiosonde averaged latitude',},
-#         'sonde_longitude':{'units':'degrees_east', 'long_name':'radiosonde averaged longitude',},
-#         'sonde_readings': {'long_name':'number of radiosonde readings averaged',},
-#         'era5_time':     {'long_name':'ERA5 profile time',},
-#         'sonde_bounds_press': {'units':'hPa', 'long_name':'pressure range of radiosonde measurements'},
-#         'sonde_bounds_alt': {'units':'km', 'long_name':'altitude range of radiosonde measurements'},
-#         'era5_latitude': {'units':'degrees_north', 'long_name':'ERA5 profile latitude',},
-#         'era5_longitude':{'units':'degrees_east', 'long_name':'ERA5 profile longitude',},
-#     }
-#     profile_ds = data.add_attrs(profile_ds, attrs_dict)
+    # THIRD: add in skt, and o3 interpolated to vertical levels
+    skintemp_era = era5_ds.skt.values
+    o3_interp_era, co2_interp, co_interp, ch4_interp = data.nondim_interp(era5_ds, p_all_sources, 'p', ['o3', 'co2', 'co', 'ch4'])
 
-#     info_dict = {'name':'hybrid radiosonde-ERA5 profile',
-#                  'sonde_processing':
-#                  f'Radiosonde data averaged on layers defined by levels with spacing {spacing} in coordinate {vertical_coord}',
-#                  'era_processing':'skt taken directly, o3 interpolated onto pressure layers. all fields in layers outside of radiosonde range defined by ERA5'}
+    # PROFILE: things as coord of pressure
+    profile_ds = xr.Dataset(
+        data_vars={
+        't': (['p'], t_all_sources),
+        'z': (['p'], z_all_sources),
+        'q': (['p'], wv_mmr_all_sources),
+        'o3': (['p'], o3_interp_era),
+        'co2': (['p'], co2_interp),
+        'co': (['p'], co_interp),
+        'ch4': (['p'], ch4_interp),
+        'skt': (skintemp_era),
+        'data_source': (['p'], data_source),
+        'measurement_time': (['p'], meas_times_avg),
+        'measurement_latitude': (['p'], meas_lats_avg),
+        'measurement_longitude': (['p'], meas_lons_avg),
+        'measurement_readings': (['p'], meas_n_rdgs),
+        'era5_time': (era5_time),
+        'era5_latitude': (era5_lat),
+        'era5_longitude': (era5_lon),
+        'sonde_bounds_press': (sonde_bounds_p),
+        'sonde_bounds_alt': (sonde_bounds_z),
+        },
+        coords={
+        'p':(p_all_sources),
+        }
+    )
 
-#     profile_ds = profile_ds.assign_attrs(info_dict)
+    attrs_dict = {
+        'p':    {'units':'hPa', 'long_name':'pressure',},
+        't':    {'units':'K', 'long_name':'temperature', 'standard_name':'air_temperature'},
+        'z':    {'units':'km', 'long_name':'geometric altitude', 'standard_name':'altitude'},
+        'q':    {'units':'g kg**-1', 'long_name':'water vapour mass mixing ratio', 'standard_name':'humidity_mixing_ratio'},
+        'o3':   {'units':'g kg**-1', 'long_name':'ozone mass mixing ratio', 'standard_name':'mass_fraction_of_ozone_in_air'},
+        'co2':   {'units':'g kg**-1', 'long_name':'carbon dioxide mass mixing ratio'},
+        'co':   {'units':'g kg**-1', 'long_name':'carbon monoxide mass mixing ratio'},
+        'ch4':   {'units':'g kg**-1', 'long_name':'methane mass mixing ratio'},
+        'skt':  {'units':'K', 'long_name':'skin temperature',},
+        'measurement_time':     {'long_name':'in-situ measurement averaged time',},
+        'measurement_latitude': {'units':'degrees_north', 'long_name':'in-situ measurement (averaged) latitude',},
+        'measurement_longitude':{'units':'degrees_east', 'long_name':'in-situ measurement (averaged) longitude',},
+        'measurement_readings': {'long_name':'number of in-situ readings averaged',},
+        'era5_time':     {'long_name':'ERA5 profile time',},
+        'sonde_bounds_press': {'units':'hPa', 'long_name':'pressure range of radiosonde measurements'},
+        'sonde_bounds_alt': {'units':'km', 'long_name':'altitude range of radiosonde measurements'},
+        'era5_latitude': {'units':'degrees_north', 'long_name':'ERA5 profile latitude',},
+        'era5_longitude':{'units':'degrees_east', 'long_name':'ERA5 profile longitude',},
+        'data_source':{'description':'source of data for p, t, z, q at the given altitude'}
+    }
+    profile_ds = data.add_attrs(profile_ds, attrs_dict)
 
-#     return profile_ds
+    info_dict = {'name':'hybrid radiosonde-ERA5 profile',
+                 'sonde_processing':
+                 f'Radiosonde data averaged on layers defined by levels with spacing {spacing} in coordinate {vertical_coord}',
+                 'sentinel_processing': f'readings taken averaged over a time window of {2*seconds_to_avg} s, with some levels discarded',
+                 'era_processing':'skt taken directly, o3 interpolated onto pressure layers. all fields in layers outside of radiosonde&sentinel range defined by ERA5'}
+
+    profile_ds = profile_ds.assign_attrs(info_dict)
+
+    return profile_ds
