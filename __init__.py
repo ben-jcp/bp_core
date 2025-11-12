@@ -10,11 +10,12 @@ __all__ = [
     'met',
     'planck',
     'plot',
+    'sat',
     'stat',
     'util',
 
     'aer_tools',
     ]
 
-from . import ceda_io, data, inst, lblrtm, met, planck, plot, stat, util
+from . import ceda_io, data, inst, lblrtm, met, planck, plot, sat, stat, util
 from . import aer_tools
