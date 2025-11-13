@@ -10,7 +10,7 @@ def pixel_centres_in_circle_by_xtr(sat_geo_ds, centre_coords, radius_deg, xtrack
     if not xtrack_range:
         xtrack_range = sat_geo_ds['xtrack'].size
 
-    for xtr in xtrack_range:
+    for xtr in range(xtrack_range):
 
         lats = sat_geo_ds['latitude'][:,xtr].values
         lons = sat_geo_ds['longitude'][:,xtr].values
