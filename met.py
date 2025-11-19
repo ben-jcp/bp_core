@@ -967,7 +967,7 @@ def profile_from_era5_ensemble_spread(datetime_str, point=None, loc_range=None, 
     return profile_ds
 
 
-def total_column_water_vapour(wv_mmr, p_input, p_level_type='half_levels', output_units='kg/m2'):
+def total_column_water_vapour(wv_mmr, p_input, p_level_type='half_levels', input_units='g/kg', output_units='kg/m2'):
     # ERA5 in kg/m2, PREFIRE in mm
     # CODE HERE TO DEAL WITH PRESSURE IN ASCENDING/DESCENDING ORDER
     if np.all( np.diff(p_input) > 0 ):
@@ -976,6 +976,11 @@ def total_column_water_vapour(wv_mmr, p_input, p_level_type='half_levels', outpu
         neg_factor = -1
     else:
         raise ValueError('Input pressure levels not sorted correctly')
+
+    if input_units == 'g/kg':
+        unit_factor = 1.e-3
+    elif input_units == 'kg/kg':
+        unit_factor = 1.
 
     if p_level_type == 'half_levels':
         
@@ -987,7 +992,7 @@ def total_column_water_vapour(wv_mmr, p_input, p_level_type='half_levels', outpu
         layer_p_diffs = np.diff(p_input)
         wv_mmr_layers = np.convolve(wv_mmr, [0.5, 0.5], mode='valid')
 
-    tcwv = neg_factor * np.sum(1.e-3*wv_mmr_layers * 1.e2*layer_p_diffs) / g_0
+    tcwv = neg_factor * np.sum(unit_factor*wv_mmr_layers * 1.e2*layer_p_diffs) / g_0
 
     if output_units == 'mm':
         tcwv = 1.e3 * tcwv / rho_water
@@ -996,15 +1001,18 @@ def total_column_water_vapour(wv_mmr, p_input, p_level_type='half_levels', outpu
 
 
 
-def era_profile_following_sonde(sonde_fp, ):
+def era_profile_following_sonde(sonde_fp, load_local=True, load_ghg=True):
 
     sonde_data = data.load_radiosonde_nc(sonde_fp)
+
+    # This has been added in an attempt to fix an issue where too many or too few layers are loaded (i.e. 136 or 138) but does not work.
+    alt_pad = 0.005 # km
 
     times = list(set( [util.round_to_hours(dt.datetime.fromisoformat(str(timeval))).strftime('%Y-%m-%dT%H:%M') for timeval in sonde_data.time.values] ))
 
     datasets = []
     for datetime_str in times:
-        era5_hr_data = profile_from_ml_era5_new(datetime_str, loc_range=[-75,-70,43,46], tag='eastCanada').squeeze()
+        era5_hr_data = profile_from_ml_era5_new(datetime_str, loc_range=[-75,-69,43,46], tag='eastCanada', load_local=load_local).squeeze()
 
         era5_hr_data = era5_hr_data.sortby(['level','half_level'], ascending=False)
         era5_hr_data = add_altitudes_era(era5_hr_data)
@@ -1040,7 +1048,7 @@ def era_profile_following_sonde(sonde_fp, ):
 
     start_alt = sonde_data['ALTITUDE'].values[0] / 1.e3
 
-    first_gc_altitude_mask = util.in_range(start_profile['altitude'].values, (-2., start_alt), incl=True)
+    first_gc_altitude_mask = util.in_range(start_profile['altitude'].values, (-2., start_alt-alt_pad), incl=True)
     for variable in vars_todo:
 
         gridcell_data = start_profile[variable][first_gc_altitude_mask].values
@@ -1084,7 +1092,7 @@ def era_profile_following_sonde(sonde_fp, ):
 
     final_alt = sonde_data['ALTITUDE'].values[last_idx] / 1.e3
 
-    last_gc_altitude_mask = util.in_range(final_profile['altitude'].values, (final_alt, 150.), incl=True)
+    last_gc_altitude_mask = util.in_range(final_profile['altitude'].values, (final_alt+alt_pad, 150.), incl=True)
     for variable in vars_todo:
 
         gridcell_data = final_profile[variable][last_gc_altitude_mask].values
@@ -1103,8 +1111,9 @@ def era_profile_following_sonde(sonde_fp, ):
     profile_following['level'] = (['p'], np.arange(era5_data.level.size, 0, -1))
 
     profile_ds = xr.Dataset(profile_following)
-    cams_ghg_ds = ghg_profile_cams(str(sonde_data.time.values[0]), point=(sonde_data['LATITUDE'].values[0], sonde_data['LONGITUDE'].values[0]) , tag='eastCanada')
-    profile_ds = merge_ghg_to_profile(profile_ds, cams_ghg_ds, dest_dim='p')
+    if load_ghg:
+        cams_ghg_ds = ghg_profile_cams(str(sonde_data.time.values[0]), point=(sonde_data['LATITUDE'].values[0], sonde_data['LONGITUDE'].values[0]) , tag='eastCanada')
+        profile_ds = merge_ghg_to_profile(profile_ds, cams_ghg_ds, dest_dim='p')
 
     attrs_dict = {
         'p':    {'units':'hPa', 'long_name':'pressure',},
