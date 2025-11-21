@@ -673,6 +673,7 @@ def write_lblrtm_tape5(tape5_fp, config_fp, profile_dict=None, gas_input_dict=No
 
                 # Ignoring all options in Record 5.x (for non-implemented Laser options)
 
+        # NOTE if developing, that beyond this point there are repeated variable names e.g. JEMIT, NPTS
 
         # Record 6.        Scan Merge                   ( for scanned sequential results; IMRG between 13 and 18; 35-36 )
         # Record 6.1    

@@ -813,10 +813,17 @@ def merge_ghg_to_profile(profile_ds, ghg_ds, dest_dim='level'):
     """
     Just copies one profile (i.e. single lat,lon) of CH4 CO CO2 to an existing dataset
     """
-    levels = profile_ds['level'].values
-    if np.all(np.diff(levels) > 0):
+    # levels = profile_ds['level'].values
+    # if np.all(np.diff(levels) > 0):
+    #     ascending = True
+    # elif np.all(np.diff(levels) < 0):
+    #     ascending = False
+
+    # sort by pressures instead of levels. sometimes level just blindly tracks the order of values in ERA5 profile
+    pressures = profile_ds['p'].values
+    if np.all(np.diff(pressures) > 0):  # pressures ascending, so sorted from model level 1 to 137
         ascending = True
-    elif np.all(np.diff(levels) < 0):
+    elif np.all(np.diff(pressures) < 0):  # pressures descending, so array sorted from model level 137 to 1
         ascending = False
 
     ghg_ds = ghg_ds.sortby(['model_level'], ascending=ascending)
