@@ -3,6 +3,7 @@ import numpy as np
 import os
 import subprocess as sub
 import sys
+import time
 import re
 import datetime as dt
 
@@ -746,3 +747,112 @@ def make_profile_dicts(profile, change_input_keys={}):
                              'units':'A'} for variable in xsect_gases}
 
     return prof_dict, gas_dict, xsect_dict
+
+
+def slant_path_run(profile, wnum_range, angle, lbl_atm, sfc_type, save_dir, dw_obs_alt=0.130, profile_src='',
+                   profile_txt='', xsect_prof_txt='', test_str='', sonde_fp='', lbl_exe_loc=_lblpath):
+
+    if 'era' in profile_src.casefold():
+        make_dict_mod = {}
+        info_keys = ['time', 'latitude', 'longitude']
+        p_bound_key = 'p_half'
+        sfc_index = np.argmin(np.abs(profile['altitude'].values-dw_obs_alt))
+        p_surf_obs = profile['p'].values[sfc_index]
+        sonde_info = ''
+        src_tag = 'ERA5'
+    elif 'sonde' in profile_src.casefold():
+        make_dict_mod = {'altitude':'z'}
+        info_keys = ['era5_time', 'era5_latitude', 'era5_longitude']
+        p_bound_key = 'p'
+        sonde_info = f'Radiosonde launch on the WHAFFFERS campaign, at file {sonde_fp}'
+        sfc_index = np.argmin(np.abs(profile['z'].values-dw_obs_alt))
+        p_surf_obs = profile['p'].values[sfc_index]
+        if 'hybrid' in profile_src.casefold():
+            src_tag = 'sonde_sentinel'
+            # p_surf_obs = np.max(profile['p'].values)
+        else:
+            src_tag = 'sonde'
+            # p_surf_obs = np.max(profile['sonde_bounds_press'].values)
+
+    info_key_dict = dict(zip(['time','lat','lon'],info_keys))
+
+    print(f'LBLRTM run in vertical mode with angle {angle:.2f} degrees')
+
+    if angle < 90:
+        # downwelling case
+        welling_tag = "dw"
+        obs_lvl = p_surf_obs
+        start_lvl = max(profile[p_bound_key].values.min(), 0.001) # LBLRTM input format restricts this
+        t_boundary = 2.7 # K, outer space
+        sfc_type = None
+        print('Viewing geometry: downwelling (upwards-viewing), with space blackbody background')
+
+    elif 90 < angle <= 180:
+        # upwelling case
+        welling_tag = f"uw.{180-angle:.2f}deg"
+        obs_lvl = 0.001  # hPa, obs pressure 
+        start_lvl = profile[p_bound_key].values.max()
+        t_boundary = profile.skt.values
+        print('Viewing geometry: upwelling (downwards-viewing)')
+
+    else:
+        raise Exception(f'Bad angle specification: {angle}deg')
+    
+    if sfc_type:
+        # using specified surface type
+        sfc_tag = write_emis_sfc_type(sfc_type, lblrtm_path=lbl_exe_loc)
+        print(f'Using {sfc_type} surface type for IR emissivity')
+        surface_info = f'Using {sfc_type} surface type for IR emissivity from file: surface_emissivity_for_11types_0deg.nc'
+        emis_coeff=[-1.]
+        refl_coeff=[-1.]
+    else:
+        # using blackbody surface
+        surface_info = ''
+        sfc_tag = ''
+        emis_coeff=[1.]
+        refl_coeff=[0.]
+
+    profile_input, gas_input, xsect_input = make_profile_dicts(profile, make_dict_mod)
+
+    write_lblrtm_tape5(
+        tape5_fp=lbl_exe_loc+'TAPE5',
+        config_fp=lbl_exe_loc+'lblrtm_config',
+
+        profile_dict=profile_input,
+        gas_input_dict=gas_input,
+        profile_description=profile_txt,
+        xsect_opt=1,
+        xsect_input_dict=xsect_input,
+        xsect_prfl_description=xsect_prof_txt,
+        atm_gas_defaults=lbl_atm,
+
+        wn_range=wnum_range,
+        boundary_temp=t_boundary,
+        obs_alt=obs_lvl,
+        end_or_tan_alt=start_lvl,
+        zen_angle=angle,
+        surf_emis_coeffs=emis_coeff,
+        surf_refl_coeffs=refl_coeff,
+    )
+    
+    info_string = ('Profile:\n'
+                + sonde_info
+                + f'Coordinates: ({profile[info_key_dict['lat']].data:.2f}, {profile[info_key_dict['lon']].data:.2f}), time: {profile[info_key_dict['time']].data}\n'
+                + 'Data source: ERA5 complete (on model levels)\n'
+                + 'Using variables T, q, o3, lnsp, z, and skt (for upwelling). lnsp used to calculate pressures of model levels.\n'
+                + 'z converted from geopotential to altitude to use as basis for hydrostatic relation.\n'
+                + f'LBLRTM parameters: observation angle {angle:.2f} deg, boundary temp {t_boundary:.2f} K, model atmosphere {lbl_atm}\n'
+                + f'Surface altitude {dw_obs_alt:.2f} km & pressure {p_surf_obs:.1f} hPa (for dw obs only)\n'
+                + f'GHGs added as detailed in profile.nc, from a range of sources (CAMS GHG forecasts, climate.gov, NOAA) \n'
+                + surface_info)
+
+    out_dir = util.gen_output_directory(str(profile[info_key_dict['time']].values), profile[info_key_dict['lat']].values, profile[info_key_dict['lon']].values)
+    output_loc = save_dir + test_str + src_tag + out_dir + welling_tag + sfc_tag + '/'
+
+    lbl_start_time = time.time()
+    run_LBLRTM(output_loc, file_write=info_string)
+    lbl_end_time = time.time()
+
+    profile.to_netcdf(output_loc + 'profile.nc')
+
+    print(f'LBLRTM finished with runtime {lbl_end_time - lbl_start_time:.1f}s, and profile saved')
