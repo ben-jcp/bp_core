@@ -427,7 +427,7 @@ def process_spectrum_general(
 
     if apodisation_func == "triangle":
         print("Applying triangle")
-        int_1_unapodised = np.copy(int_1)
+        # int_1_unapodised = np.copy(int_1)
         triangle_left = [1, 0]
         triangle_left_x = [0, Q]
         triangle_left_x_all = np.arange(len(int_1[0:Q]) + 1)
@@ -457,7 +457,10 @@ def apply_inst_function(wn, spec, instrument, unit_conv=1.e7, sc=None):
 
     if instrument == 'FINESSE':
 
-        result = apply_ils_bins(spec, wn, inst_res=0.2, unit_conv=unit_conv, calc_brightness_temp=False)
+        wn_FINESSE, radiance_FINESSE = process_spectrum_general(wn, spec, 0.01, 380, 1600, 1.21)
+        result = apply_ils_bins(radiance_FINESSE, wn_FINESSE, inst_res=0.2, unit_conv=unit_conv,
+                                          spec_range=(352.4,1600.2), calc_brightness_temp=False)
+        # result = apply_ils_bins(spec, wn, inst_res=0.2, unit_conv=unit_conv, calc_brightness_temp=False)
         output_wn = result['wn'].values
         output_spec = result['radiance'].values
 
