@@ -754,8 +754,12 @@ def slant_path_run(profile, wnum_range, angle, lbl_atm, sfc_type, save_dir, dw_o
 
     if 'era' in profile_src.casefold():
         make_dict_mod = {}
-        info_keys = ['time', 'latitude', 'longitude']
-        p_bound_key = 'p_half'
+        if 'follow' in profile_src.casefold():
+            p_bound_key = 'p'
+            info_keys = ['era5_time', 'era5_latitude', 'era5_longitude']
+        else:
+            info_keys = ['time', 'latitude', 'longitude']
+            p_bound_key = 'p_half'
         sfc_index = np.argmin(np.abs(profile['altitude'].values-dw_obs_alt))
         p_surf_obs = profile['p'].values[sfc_index]
         sonde_info = ''

@@ -1027,7 +1027,7 @@ def era_profile_following_sonde(sonde_fp, load_local=True, load_ghg=True):
 
     datasets = []
     for datetime_str in times:
-        era5_hr_data = profile_from_ml_era5_new(datetime_str, loc_range=[-75,-69,43,46], tag='eastCanada', load_local=load_local).squeeze()
+        era5_hr_data = profile_from_ml_era5_new(datetime_str, loc_range=[-75,-70,43,46], tag='eastCanada', load_local=load_local).squeeze()
 
         era5_hr_data = era5_hr_data.sortby(['level','half_level'], ascending=False)
         era5_hr_data = add_altitudes_era(era5_hr_data)
