@@ -47,6 +47,13 @@ def move_files(filenames, dest_directory):
     if isinstance(filenames, (str,)):
         filenames = [filenames]
 
+    new_dirs = list(set([os.path.dirname(file) for file in filenames]))
+    new_dirs_absolute = [os.path.join(dest_directory, new_dir) for new_dir in new_dirs]
+    for new_dir in new_dirs_absolute:
+        if not os.path.exists(new_dir):
+            os.makedirs(new_dir)
+            print('path created: {:}'.format(new_dir))
+
     for fn in filenames:
         try:
             dst = shutil.move(fn, dest_directory+fn)

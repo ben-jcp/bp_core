@@ -244,7 +244,7 @@ def apply_ils_bins(spec, wn, rt_res=0.001, inst_res=0.5, unit_conv=1.e7, spec_ra
     # if set to None, then calculates based off source difference between wavenumbers (should be constant)
     if rt_res == None:
         rt_res = radtran.wn.diff(dim='wn').mean()
-    radtran = radtran.interp(wn=np.arange(*spec_range, rt_res))
+    radtran = radtran.interp(wn=np.arange(*spec_range, rt_res), kwargs={'fill_value':0.0})
 
     # loading ILS Dataset (ds) from NetCDF and interpolating to radtran spectral resolution
     ds_ils = xr.load_dataset(ils_file)
@@ -257,15 +257,15 @@ def apply_ils_bins(spec, wn, rt_res=0.001, inst_res=0.5, unit_conv=1.e7, spec_ra
     simulated_spectrum = np.zeros_like(lbl_radiance)
     pad = 10 # cm-1
     # iterate over bins
-    for bin in ds_ils['bin'].values:
-        lo_bound = ds_ils['lo_bound'][bin].values
-        hi_bound = ds_ils['hi_bound'][bin].values
+    for spec_bin in ds_ils['bin'].values:
+        lo_bound = ds_ils['lo_bound'][spec_bin].values
+        hi_bound = ds_ils['hi_bound'][spec_bin].values
         # this if/else statement prevents convolution being applied for bins outside of the range of the simultation
         if lo_bound < np.max(lbl_wns) and hi_bound > np.min(lbl_wns):
             # boolean mask for whether basis spectrum is between the bounds of the bins, with pad
             bin_mask_wide = util.in_range(lbl_wns, (lo_bound - pad, hi_bound + pad))
             # load ILS relevant for the specific bin
-            bin_ils = ds_ils['ils'][:, bin].values[::-1] # reverse ILS to match expected behaviour when convolving
+            bin_ils = ds_ils['ils'][:, spec_bin].values[::-1] # reverse ILS to match expected behaviour when convolving
             norm_factor = bin_ils.sum()
             # apply ILS by convolving with entire spectrum
             bin_conv_spectrum = np.convolve(bin_ils, lbl_radiance[bin_mask_wide], mode='same') / norm_factor
@@ -457,9 +457,9 @@ def apply_inst_function(wn, spec, instrument, unit_conv=1.e7, sc=None):
 
     if instrument == 'FINESSE':
 
-        wn_FINESSE, radiance_FINESSE = process_spectrum_general(wn, spec, 0.01, 380, 1600, 1.21)
+        wn_FINESSE, radiance_FINESSE = process_spectrum_general(wn, spec, 0.01, 370, 1610, 1.21)
         result = apply_ils_bins(radiance_FINESSE, wn_FINESSE, inst_res=0.2, unit_conv=unit_conv,
-                                          spec_range=(352.4,1600.2), calc_brightness_temp=False)
+                                          spec_range=(352.4,1600.3), calc_brightness_temp=False)
         # result = apply_ils_bins(spec, wn, inst_res=0.2, unit_conv=unit_conv, calc_brightness_temp=False)
         output_wn = result['wn'].values
         output_spec = result['radiance'].values
