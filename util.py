@@ -62,6 +62,27 @@ def move_files(filenames, dest_directory):
             print('no file {:} found to move'.format(fn))
 
 
+
+def remove_files(filenames):
+    """
+    Deletes the files referenced by filenames 
+
+    Arguments:
+        :filenames:         string or list of strings containing files to be deleted 
+    """
+
+    if isinstance(filenames, (str,)):
+        filenames = [filenames]
+
+    for fn in filenames:
+        try:
+            os.remove(fn)
+            print('file {:} deleted'.format(fn))
+        except FileNotFoundError:
+            print('no file {:} found to remove'.format(fn))
+
+
+
 def move_files_with_wildcard(file_type_list, src_dir, dst_dir):
 
     starting_directory = os.getcwd()
@@ -72,6 +93,19 @@ def move_files_with_wildcard(file_type_list, src_dir, dst_dir):
         move_files(file_list, dst_dir)
 
     os.chdir(starting_directory)
+
+
+def remove_files_with_wildcard(file_type_list, src_dir):
+
+    starting_directory = os.getcwd()
+    os.chdir(src_dir)
+
+    for pathtype in file_type_list:
+        file_list = glob.glob(pathtype, recursive=False)
+        remove_files(file_list)
+
+    os.chdir(starting_directory)
+
 
 
 def gen_output_directory(datetime, lat, lon, pert_mag=0, pert_shape=None, pert_var=None, pert_extent=None):
