@@ -786,7 +786,9 @@ def slant_path_run(profile, wnum_range, angle, lbl_atm, sfc_type, save_dir, dw_o
         # downwelling case
         welling_tag = "dw"
         obs_lvl = p_surf_obs
-        # TODO: filter profile dataset to be above the obs_lvl!
+        if 'era' in profile_src.casefold():
+            profile = profile.isel(level=slice(sfc_index,None), half_level=slice(sfc_index,None))
+
         start_lvl = max(profile[p_bound_key].values.min(), 0.001) # LBLRTM input format restricts this
         t_boundary = 2.7 # K, outer space
         sfc_type = None
