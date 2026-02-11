@@ -1,7 +1,7 @@
 import numpy as np
 import xarray as xr
 import datetime as dt
-import re, os, time, cdsapi
+import re, os, time, cdsapi, warnings
 from netCDF4 import Dataset
 from . import ceda_io, util
 
@@ -272,27 +272,40 @@ def open_era_file(path, source='disk', token=None):
         raise Exception('Invalid specification of source for ERA filepath')
     
 
-def dataset_load_and_process(path, source, token, filter, profile_datetime):
-    
+def dataset_load_and_process(path, source, token, filter, profile_datetime, resolution_hrs=None):
+
     ds = open_era_file(path, source, token)
     ds = spatial_filter(ds, filter)
+
+    if resolution_hrs:
+        max_time_offset_mins = round(60*resolution_hrs) - 1
+        time_sel_tolerance = np.timedelta64(max_time_offset_mins, 'm')
+    else:
+        time_sel_tolerance = None
 
     # select single time value and drop time dimension
     # and drop extra level dimension
     if source == 'disk' and 'cams' not in path:
         try:
-            ds = ds.squeeze().sel(valid_time=[profile_datetime], method='nearest')
+            # TODO: implement something with tolerance keyword to ensure that times are not brought in beyond the resolution
+            ds = ds.squeeze().sel(valid_time=[profile_datetime], method='nearest', tolerance=time_sel_tolerance)
         except KeyError:
-            ds = ds.sel(valid_time=[profile_datetime], method='nearest')
+            # print('BP 11Feb2026: KeyError BEING CAUGHT FOR SOME REASON')
+            # previously this was catching KeyErrors thrown without including the tolerance keyword above.
+            # this might have been to normalise downstream behaviour of the dataset (sel without squeeze) so may need to return and fix
+            # ds = ds.sel(valid_time=[profile_datetime], method='nearest', tolerance=time_sel_tolerance)
+            ds = ds.squeeze().sel(valid_time=[profile_datetime], method='nearest')
+            warnings.warn('ERA data loaded is likely not at the requested time')
     elif 'cams' in path:
         lead_time_mins = int(profile_datetime[-2:]) + 60 * int(profile_datetime[-5:-3])
         lead_time = np.timedelta64(lead_time_mins, 'm')
-        ds = ds.sel(forecast_period=[lead_time], method='nearest').squeeze()
+        ds = ds.sel(forecast_period=[lead_time], method='nearest', tolerance=time_sel_tolerance).squeeze()
 
     return ds
 
 
-def era5_local_available(datetime_search, tag=None, filt_params=None):
+def era5_local_available(datetime_search, tag=None, filt_params=None, enforce_time_check=False):
+    # TODO: implement a time check here too
     """
     W, E, S, N
     """
@@ -320,7 +333,19 @@ def era5_local_available(datetime_search, tag=None, filt_params=None):
             truths += [check_within_range(ds, filt_params)]
 
         if all(truths):
-            return True
+
+            if enforce_time_check:
+                datetime_object = util.round_to_hours(dt.datetime.fromisoformat(datetime_search))
+                np_dt_to_find = np.datetime64(datetime_object)
+                if np_dt_to_find in ds['valid_time']:
+                    return True
+                
+                else:
+                    print(f'Datetime {datetime_search} requested not in the downloaded dataset')
+                    return False
+
+            else:
+                return True
         else:
             allvars = np.array(met_vars + sl_vars)
             invalid_vars = allvars[np.logical_not(truths)]
@@ -328,7 +353,7 @@ def era5_local_available(datetime_search, tag=None, filt_params=None):
             return False
 
     except IndexError:
-        # IndexError thrown by lambda fn if files not present for correct date/variables
+        # IndexError thrown by lambda fn from util.local_era_fp, if files not present for correct date/variables
         return False
 
 
