@@ -367,8 +367,10 @@ def add_altitudes_era(profile):
     return profile
 
 
-def profile_from_ml_era5_new(datetime_str, point=None, loc_range=None, load_local=True, attempt_download=False, tag=None, dl_area=None):
+def profile_from_ml_era5_new(datetime_str, point=None, loc_range=None, load_local=True, attempt_download=False, tag=None, dl_area=None, strict_time=True):
     
+    time_res_hrs = 1
+
     # checking for specification of location selection
     if point and loc_range:
         raise Exception('Cannot specify both a spatial range and a single point')
@@ -381,7 +383,7 @@ def profile_from_ml_era5_new(datetime_str, point=None, loc_range=None, load_loca
     if load_local:
         time_label = 'valid_time'
         level_label = 'model_level'
-        if data.era5_local_available(datetime_str, tag=tag, filt_params=filt_params):
+        if data.era5_local_available(datetime_str, tag=tag, filt_params=filt_params, enforce_time_check=strict_time):
             load_source = 'disk'
         else:
             if attempt_download:
@@ -421,7 +423,7 @@ def profile_from_ml_era5_new(datetime_str, point=None, loc_range=None, load_loca
     # load lnsp dataset
     lnsp_ds = data.dataset_load_and_process(source_fp_ml('lnsp'), source=load_source,
                                            token=token, filter=filt_params,
-                                           profile_datetime=datetime_str)
+                                           profile_datetime=datetime_str, resolution_hrs=time_res_hrs)
     
     # reading in time, lat, lon
     time_data = lnsp_ds[time_label].values
@@ -463,7 +465,7 @@ def profile_from_ml_era5_new(datetime_str, point=None, loc_range=None, load_loca
     for var_ml in ['t', 'q', 'o3', 'z']:
         ds = data.dataset_load_and_process(source_fp_ml(var_ml), source=load_source,
                                            token=token, filter=filt_params,
-                                           profile_datetime=datetime_str)
+                                           profile_datetime=datetime_str, resolution_hrs=time_res_hrs)
 
         if var_ml != 'z':
 
@@ -487,7 +489,7 @@ def profile_from_ml_era5_new(datetime_str, point=None, loc_range=None, load_loca
     # dealing with skin temp separately as it is defined for single-level, not model level
     skt_ds = data.dataset_load_and_process(source_fp_sfc('skt'), source=load_source,
                                            token=token, filter=filt_params,
-                                           profile_datetime=datetime_str)
+                                           profile_datetime=datetime_str, resolution_hrs=time_res_hrs)
     
     skt_data = np.broadcast_to(skt_ds['skt'].values[0], (n_lats_gp, n_lons_gp,))
     profile_ds = profile_ds.assign({'skt':(['latitude','longitude',],skt_data)})
@@ -716,6 +718,7 @@ def ghg_profile_cams(datetime_str, point=None, loc_range=None, load_local=True, 
     # searh for closest valid_time for the single forecast_period
 
     load_source = 'disk'
+    time_res_hrs = 3
 
     # checking for specification of location selection
     if point and loc_range:
@@ -770,7 +773,7 @@ def ghg_profile_cams(datetime_str, point=None, loc_range=None, load_local=True, 
     #     token = ''
     profile_ds = data.dataset_load_and_process(source_fp, source=load_source,
                                                token=token, filter=filt_params,
-                                               profile_datetime=datetime_str)
+                                               profile_datetime=datetime_str, resolution_hrs=time_res_hrs)
     # # load lnsp dataset
     # lnsp_ds = data.dataset_load_and_process(source_fp_ml('lnsp'), source=load_source,
     #                                        token=token, filter=filt_params,
@@ -850,6 +853,8 @@ def merge_ghg_to_profile(profile_ds, ghg_ds, dest_dim='level'):
 
 def profile_from_era5_ensemble_spread(datetime_str, point=None, loc_range=None, attempt_download=False, tag=None, dl_area=None):
     
+    time_res_hrs = 3
+
     # checking for specification of location selection
     if point and loc_range:
         raise Exception('Cannot specify both a spatial range and a single point')
@@ -891,7 +896,7 @@ def profile_from_era5_ensemble_spread(datetime_str, point=None, loc_range=None, 
     # load lnsp dataset
     lnsp_ds = data.dataset_load_and_process(source_fp_ml('lnsp'), source=load_source,
                                            token=token, filter=filt_params,
-                                           profile_datetime=datetime_str)
+                                           profile_datetime=datetime_str, resolution_hrs=time_res_hrs)
     
     # reading in time, lat, lon
     time_data = lnsp_ds[time_label].values
@@ -933,7 +938,7 @@ def profile_from_era5_ensemble_spread(datetime_str, point=None, loc_range=None, 
     for var_ml in ['t', 'q', 'o3']:
         ds = data.dataset_load_and_process(source_fp_es(var_ml), source=load_source,
                                            token=token, filter=filt_params,
-                                           profile_datetime=datetime_str)
+                                           profile_datetime=datetime_str, resolution_hrs=time_res_hrs)
 
         var_data = ds[var_ml].values[0]
 
@@ -950,7 +955,7 @@ def profile_from_era5_ensemble_spread(datetime_str, point=None, loc_range=None, 
     # dealing with skin temp separately as it is defined for single-level, not model level
     skt_ds = data.dataset_load_and_process(source_fp_es('skt'), source=load_source,
                                            token=token, filter=filt_params,
-                                           profile_datetime=datetime_str)
+                                           profile_datetime=datetime_str, resolution_hrs=time_res_hrs)
     
     skt_data = np.broadcast_to(skt_ds['skt'].values[0], (n_lats_gp, n_lons_gp,))
     profile_ds = profile_ds.assign({'skt':(['latitude','longitude',],skt_data)})
@@ -1021,13 +1026,28 @@ def era_profile_following_sonde(sonde_fp, load_local=True, load_ghg=True):
     sonde_data = data.load_radiosonde_nc(sonde_fp)
 
     # This has been added in an attempt to fix an issue where too many or too few layers are loaded (i.e. 136 or 138) but does not work.
-    alt_pad = 0.005 # km
+    alt_pad = 0.00 # km
+
+    latlon_pad = 0.3
 
     times = list(set( [util.round_to_hours(dt.datetime.fromisoformat(str(timeval))).strftime('%Y-%m-%dT%H:%M') for timeval in sonde_data.time.values] ))
+    lon_bounds = [np.min(sonde_data['LONGITUDE'].values)-latlon_pad, np.max(sonde_data['LONGITUDE'].values)+latlon_pad]
+    lat_bounds = [np.min(sonde_data['LATITUDE'].values)-latlon_pad, np.max(sonde_data['LATITUDE'].values)+latlon_pad]
+    sonde_loc_range = lon_bounds + lat_bounds
+    assert len(sonde_loc_range) == 4
 
     datasets = []
     for datetime_str in times:
-        era5_hr_data = profile_from_ml_era5_new(datetime_str, loc_range=[-75,-70,43,46], tag='eastCanada', load_local=load_local).squeeze()
+        if load_local:
+            # if enforcing local loading
+            era5_hr_data = profile_from_ml_era5_new(datetime_str, loc_range=sonde_loc_range, tag='eastCanada', load_local=load_local).squeeze()
+        else:
+            # load_local False: tryigng best approach
+            try:
+                era5_hr_data = profile_from_ml_era5_new(datetime_str, loc_range=sonde_loc_range, tag='eastCanada', load_local=True).squeeze()
+            except (FileNotFoundError):
+                print(f'Data not found on disk for {datetime_str}, attempting remote load via CEDA archive')
+                era5_hr_data = profile_from_ml_era5_new(datetime_str, loc_range=sonde_loc_range, tag='eastCanada', load_local=False).squeeze()
 
         era5_hr_data = era5_hr_data.sortby(['level','half_level'], ascending=False)
         era5_hr_data = add_altitudes_era(era5_hr_data)
@@ -1123,7 +1143,8 @@ def era_profile_following_sonde(sonde_fp, load_local=True, load_ghg=True):
     profile_following['era5_latitude'] = start_lat
     profile_following['era5_longitude'] = start_lon
     profile_following['era5_time'] = start_time
-    profile_following['level'] = (['p'], np.arange(era5_data.level.size, 0, -1))
+    profile_following['level'] = (['p'], np.arange(profile_following['p'].size, 0, -1))
+    # profile_following['level'] = (['p'], np.arange(era5_data.level.size, 0, -1))
 
     profile_ds = xr.Dataset(profile_following)
     if load_ghg:

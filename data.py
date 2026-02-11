@@ -287,7 +287,6 @@ def dataset_load_and_process(path, source, token, filter, profile_datetime, reso
     # and drop extra level dimension
     if source == 'disk' and 'cams' not in path:
         try:
-            # TODO: implement something with tolerance keyword to ensure that times are not brought in beyond the resolution
             ds = ds.squeeze().sel(valid_time=[profile_datetime], method='nearest', tolerance=time_sel_tolerance)
         except KeyError:
             # print('BP 11Feb2026: KeyError BEING CAUGHT FOR SOME REASON')
@@ -305,7 +304,6 @@ def dataset_load_and_process(path, source, token, filter, profile_datetime, reso
 
 
 def era5_local_available(datetime_search, tag=None, filt_params=None, enforce_time_check=False):
-    # TODO: implement a time check here too
     """
     W, E, S, N
     """
