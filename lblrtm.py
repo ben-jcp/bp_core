@@ -12,7 +12,7 @@ import datetime as dt
 # sys.path.append(aer_common_path)
 from . import panel_file as pf_rd
 from . import util
-from .write_tape_5_BP import write_tape5
+from .write_tape_5_BP import write_tape5  # this is kept in for access
 from .aer_tools import RC_utils
 
 _lblpath = '/net/thunder/users/bjp224/lblrtm_12.17/'
@@ -49,6 +49,14 @@ alias_dict = {
     'merge_opt': 'IMRG',
     'optical_depth_opt': 'IOD',
     'xsect_opt': 'IXSECT',
+
+    'h2o_self_cntm_scaling': 'XSELF',
+    'h2o_frgn_cntm_scaling': 'XFRGN',
+    'co2_cntm_scaling': 'XCO2C',
+    'o3_cntm_scaling': 'XO3CN',
+    'o2_cntm_scaling': 'XO2CN',
+    'n2_cntm_scaling': 'XN2CN',
+    'rayleigh_scaling': 'XRAYL',
 
     'min_wn':'V1',
     'max_wn':'V2',
@@ -312,6 +320,11 @@ def get_config_options(var_list, config_dict, **kwargs):
     return options
 
 
+def items_from_config(config_dict, var_list):
+    
+    return [config_dict[var_name] for var_name in var_list]
+
+
 
 def merge_gas_profiles(species_dict, n_lvls, xsections=False, model_atm=0, n_gases_min=7,):
 
@@ -455,7 +468,8 @@ def write_lblrtm_tape5(tape5_fp, config_fp, profile_dict=None, gas_input_dict=No
 
         xsect_gas_profiles, jchar_xsect_molecules = merge_gas_profiles(xsect_input_dict, n_lvls_xsect, xsections=True)
 
-    # TODO: eliminate all instances of get_config_options()
+    # TODO: eliminate most instances of get_config_options() and replace with items_from_config() in writing stage
+    # TODO: maybe also merge contents of the above functions
 
     # ----------------------------------------- WRITING TAPE5 FILE -----------------------------------------
 
@@ -480,8 +494,9 @@ def write_lblrtm_tape5(tape5_fp, config_fp, profile_dict=None, gas_input_dict=No
             # Record 1.2.a        Continuum Factors         (required if ICNTNM = 6)
             # XSELF, XFRGN, XCO2C, XO3CN, XO2CN, XN2CN, XRAYL
             #  free format
-            # MED PRIORITY FEATURE
-            raise NotImplementedError()
+            file.write(' {:.5f} {:.5f} {:.5f} {:.5f} {:.5f} {:.5f} {:.5f} \n'.format(
+                *items_from_config(cfg, ['XSELF', 'XFRGN', 'XCO2C', 'XO3CN', 'XO2CN', 'XN2CN', 'XRAYL'])
+            ))
 
 
         if calc_result_opt == 2:
@@ -498,7 +513,7 @@ def write_lblrtm_tape5(tape5_fp, config_fp, profile_dict=None, gas_input_dict=No
         #    1-10,  11-20,    21-30,   31-40,   41-50,    51-60,    61-70,    71-80,     85,      90-100,         105
         #   E10.3,  E10.3,    E10.3,   E10.3,   E10.3,    E10.3,    E10.3,    E10.3,    4X,I1,  5X,E10.3,       3x,I2
         file.write('{:10.3E}{:10.3E}{:10.3E}{:10.3E}{:10.3E}{:10.3E}{:10.3E}{:10.3E}    {:1d}     {:10.3E}   {:2d}\n'.format(
-            *[cfg[var_name] for var_name in ['V1', 'V2', 'SAMPLE', 'DVSET', 'ALFAL0', 'AVMASS', 'DPTMIN', 'DPTFAC', 'ILNFLG', 'DVOUT', 'NMOL_SCAL']]
+            *items_from_config(cfg, ['V1', 'V2', 'SAMPLE', 'DVSET', 'ALFAL0', 'AVMASS', 'DPTMIN', 'DPTFAC', 'ILNFLG', 'DVOUT', 'NMOL_SCAL'])
         ))
             # min_wn, max_wn, samples_per_mean_hw, dv_setting, ave_coll_broad_hw, ave_mol_mass_doppler_hw, line_rejection_od, cont_od_rejection_factor,
             # line_rejection_recort_opt, dv_monochr_output_grid, n_molecules_scaled
@@ -523,7 +538,7 @@ def write_lblrtm_tape5(tape5_fp, config_fp, profile_dict=None, gas_input_dict=No
             #    1-10,     11-20,     21-30,     31-40,     41-50,     51-60,     61-70,    75  
             #   E10.3,     E10.3,     E10.3,     E10.3,     E10.3,     E10.3,     E10.3    4X,1A
             file.write('{:10.3E}{:10.3E}{:10.3E}{:10.3E}{:10.3E}{:10.3E}{:10.3E}    {:1s}\n'.format(
-                *[cfg[var_name] for var_name in ['TBOUND', 'SREMIS(1)', 'SREMIS(2)', 'SREMIS(3)', 'SRREFL(1)', 'SRREFL(2)', 'SRREFL(3)', 'surf_refl']]
+                *items_from_config(cfg, ['TBOUND', 'SREMIS(1)', 'SREMIS(2)', 'SREMIS(3)', 'SRREFL(1)', 'SRREFL(2)', 'SRREFL(3)', 'surf_refl'])
             )) 
             # IF UPLOOKING, ASSUME SPACE BLACKBODY. IF DOWNLOOKING, ASSUME LOWEST LEVEL TEMP BLACKBODY.
             # OVERRIDE ALL WITH KWARGS
@@ -544,7 +559,7 @@ def write_lblrtm_tape5(tape5_fp, config_fp, profile_dict=None, gas_input_dict=No
         #     1-55,  57-60
         #      A55, 1X, I4
             file.write('{:<55s} {:4d}\n'.format(
-                *[cfg[var_name] for var_name in ['PTHODL', 'LAYTOT']]
+                *items_from_config(cfg, ['PTHODL', 'LAYTOT'])
             ))
 
 
@@ -556,7 +571,7 @@ def write_lblrtm_tape5(tape5_fp, config_fp, profile_dict=None, gas_input_dict=No
             #       5,     10,    15,      20,      25,    30,     35,  36-37,    39-40, 41-50,  51-60, 61-70,        81-90
             #      I5,     I5,    I5,      I5,      I5,    I5,     I5,     I2,   1X, I2, F10.3,  F10.3, F10.3,   10x, F10.3
             file.write('{:5d}{:5d}{:5d}{:5d}{:5d}{:5d}{:5d}{:2d} {:2d}{:10.3f}{:10.3f}{:10.3f}          {:10.3f}\n'.format(
-                *[cfg[var_name] for var_name in ['MODEL', 'ITYPE', 'IBMAX', 'ZERO', 'NOPRNT', 'NMOL', 'IPUNCH', 'IFXTYP', 'MUNITS', 'RE', 'HSPACE', 'VBAR', 'REF_LAT']]
+                *items_from_config(cfg, ['MODEL', 'ITYPE', 'IBMAX', 'ZERO', 'NOPRNT', 'NMOL', 'IPUNCH', 'IFXTYP', 'MUNITS', 'RE', 'HSPACE', 'VBAR', 'REF_LAT'])
             ))
                 # internal_model_atm, path_type_opt, vertical_coord_flag * n_lvls, zero_small_abs, short_print_opt, n_species, layer_dat_write_opt,
                 # tape7_control_opt, tape7_gas_unit_opt, earth_radius, space_altitude, refraction_freq, reference_latitude
@@ -567,7 +582,7 @@ def write_lblrtm_tape5(tape5_fp, config_fp, profile_dict=None, gas_input_dict=No
             #    1-10, 11-20,   21-30,   31-40,  41-50, 51-55,    61-70
             #   F10.3, F10.3,   F10.3,   F10.3,  F10.3,    I5, 5X,F10.3
             file.write('{:10.3f}{:10.3f}{:10.3f}{:10.3f}{:10.3f}{:5d}     {:10.3f}\n'.format(
-                *[cfg[var_name] for var_name in ['H1', 'H2', 'ANGLE', 'RANGE', 'BETA', 'LEN', 'HOBS']]
+                *items_from_config(cfg, ['H1', 'H2', 'ANGLE', 'RANGE', 'BETA', 'LEN', 'HOBS'])
             ))
                 # obs_alt, end_or_tan_alt, zen_angle, path_length, path_angle, tan_height_opt, sat_obs_height
 
@@ -673,6 +688,7 @@ def write_lblrtm_tape5(tape5_fp, config_fp, profile_dict=None, gas_input_dict=No
 
 
                 # Ignoring all options in Record 5.x (for non-implemented Laser options)
+
 
         # NOTE if developing, that beyond this point there are repeated variable names e.g. JEMIT, NPTS
 
