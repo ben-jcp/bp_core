@@ -254,3 +254,14 @@ def round_to_res(x, res=0.25):
     rounded_x = np.round(x * divisor) / divisor
 
     return rounded_x
+
+
+def cap_array(array, cap_vals):
+
+    array = np.asarray(array)
+
+    min_cap, max_cap = cap_vals
+    array[array<min_cap] = min_cap
+    array[array>max_cap] = max_cap
+
+    return array
