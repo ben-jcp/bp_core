@@ -759,8 +759,11 @@ def make_profile_dicts(profile, change_input_keys={}):
     for variable in amount_gases:
         gas_dict[variable] = {'amount': profile[keys[variable]].values, 'unit':'A'}
 
-    xsect_dict = {variable: {'amount':profile[keys[variable]].values,
-                             'units':'A'} for variable in xsect_gases}
+    try:
+        xsect_dict = {variable: {'amount':profile[keys[variable]].values,
+                                 'units':'A'} for variable in xsect_gases}
+    except KeyError:
+        xsect_dict = {}
 
     return prof_dict, gas_dict, xsect_dict
 
@@ -768,7 +771,18 @@ def make_profile_dicts(profile, change_input_keys={}):
 def slant_path_run(profile, wnum_range, angle, lbl_atm, sfc_type, save_dir, dw_obs_alt=0.130, profile_src='',
                    profile_txt='', xsect_prof_txt='', test_str='', sonde_fp='', lbl_exe_loc=_lblpath):
 
-    if 'era' in profile_src.casefold():
+    # if/elif to handle different specifications of input profile
+    if 'p_lev' in profile_src.casefold():
+
+        make_dict_mod = {'altitude':'z', 'pressure':'pressure_level'}
+        info_keys = ['valid_time', 'latitude', 'longitude']
+        p_bound_key = 'pressure_level'
+        sfc_index = np.argmin(np.abs(profile['z'].values-dw_obs_alt))
+        p_surf_obs = profile['pressure_level'].values[sfc_index]
+        sonde_info = ''
+        src_tag = 'ERA5_pl'
+
+    elif 'era' in profile_src.casefold():
         make_dict_mod = {}
         if 'follow' in profile_src.casefold():
             p_bound_key = 'p'
@@ -780,6 +794,7 @@ def slant_path_run(profile, wnum_range, angle, lbl_atm, sfc_type, save_dir, dw_o
         p_surf_obs = profile['p'].values[sfc_index]
         sonde_info = ''
         src_tag = 'ERA5'
+
     elif 'sonde' in profile_src.casefold():
         make_dict_mod = {'altitude':'z'}
         info_keys = ['era5_time', 'era5_latitude', 'era5_longitude']
@@ -802,7 +817,7 @@ def slant_path_run(profile, wnum_range, angle, lbl_atm, sfc_type, save_dir, dw_o
         # downwelling case
         welling_tag = "dw"
         obs_lvl = p_surf_obs
-        if 'era' in profile_src.casefold():
+        if 'era' in profile_src.casefold() and 'p_lev' not in profile_src.casefold():
             profile = profile.isel(level=slice(sfc_index,None), half_level=slice(sfc_index,None))
 
         start_lvl = max(profile[p_bound_key].values.min(), 0.001) # LBLRTM input format restricts this
@@ -841,6 +856,8 @@ def slant_path_run(profile, wnum_range, angle, lbl_atm, sfc_type, save_dir, dw_o
 
     profile_input, gas_input, xsect_input = make_profile_dicts(profile, make_dict_mod)
 
+    using_xsect = len(xsect_input) > 0
+
     write_lblrtm_tape5(
         tape5_fp=lbl_exe_loc+'TAPE5',
         config_fp=lbl_exe_loc+'lblrtm_config',
@@ -848,7 +865,7 @@ def slant_path_run(profile, wnum_range, angle, lbl_atm, sfc_type, save_dir, dw_o
         profile_dict=profile_input,
         gas_input_dict=gas_input,
         profile_description=profile_txt,
-        xsect_opt=1,
+        xsect_opt=using_xsect,
         xsect_input_dict=xsect_input,
         xsect_prfl_description=xsect_prof_txt,
         atm_gas_defaults=lbl_atm,

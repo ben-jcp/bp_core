@@ -2,13 +2,19 @@ import numpy as np
 import xarray as xr
 import datetime as dt
 import pandas as pd
-from . import ceda_io, data, util
+from . import ceda_io, data, planck, util
 
+avogadro_const = 6.02214076e23
 g_0 = 9.80665  # m s-2, standard gravity
 R_e = 6371.e3  # m, mean earth radius
 R_star = 287.052874  # J kg-1 K-1, dry air specific gas constant
-mass_ratio = 18. / 28.96  # molar mass ratio of H2O to dry air
+h2o_mass_ratio = 18. / 28.96  # molar mass ratio of H2O to dry air
+dry_air_molec_mass = 0.02896 / avogadro_const  # kg, mean molecular mass of dry air
 rho_water = 999.972  # kg m-3, density of liquid water
+molar_masses = dict(
+    h2o = 18.,
+    o3 = 48.,
+)
 
 def profile_from_era(dataset):
     # input: xarray from ERA5 dataset containing data from one latlon grid point
@@ -142,7 +148,7 @@ def convert_rh_to_mass_mixing_ratio(rel_hum, pressure, temp):
 
     partial_pressure = 1.e-2 * rel_hum * sat_vp_water(temp)
 
-    mmr = mass_ratio * np.divide(partial_pressure, pressure - partial_pressure)
+    mmr = h2o_mass_ratio * np.divide(partial_pressure, pressure - partial_pressure)
 
     return mmr
 
@@ -152,7 +158,7 @@ def convert_rh_to_specific_humidity(rel_hum, pressure, temp):
     """
     partial_pressure = 1.e-2 * rel_hum * sat_vp_water(temp)
 
-    q = mass_ratio * np.divide(partial_pressure, pressure - (1 - mass_ratio) * partial_pressure)
+    q = h2o_mass_ratio * np.divide(partial_pressure, pressure - (1 - h2o_mass_ratio) * partial_pressure)
 
     return q
 
@@ -160,7 +166,7 @@ def convert_rh_to_specific_humidity(rel_hum, pressure, temp):
 def convert_mass_mixing_ratio_to_rh(mmr, pressure, temp):
     
     mmr = 1.e-3 * mmr # conversion from g/kg to kg/kg
-    rh = 1.e2 * pressure * mmr / ( (mmr + mass_ratio) * sat_vp_water(temp))    
+    rh = 1.e2 * pressure * mmr / ( (mmr + h2o_mass_ratio) * sat_vp_water(temp))    
     
     return rh
 
@@ -336,7 +342,7 @@ def hypsometric_altitudes(pressure_fl, pressure_hl, temperature, wv_mmr, sfc_alt
 
     # spec_hum = profile.q.values / (1 + profile.q.values)
     spec_hum = convert_wvmr_to_specific_humidity(wv_mmr)
-    t_virtual = temperature * (1 + (-1 + 1/mass_ratio) * spec_hum)
+    t_virtual = temperature * (1 + (-1 + 1/h2o_mass_ratio) * spec_hum)
     # hydrostatic relation to calculate approx ∆z = (R* T_v / p g) * ∆p. conversion to km 
     layer_thicknesses = - 1.e-3 * R_star * t_virtual * np.diff(pressure_hl,) / (pressure_fl * g_0)
     altitudes_hl = np.append(np.zeros(horiz_shape), np.cumsum(layer_thicknesses, axis=-1), axis=-1) + sfc_altitude
@@ -820,7 +826,7 @@ def ghg_profile_cams(datetime_str, point=None, loc_range=None, load_local=True, 
     return profile_ds
 
 
-def merge_ghg_to_profile(profile_ds, ghg_ds, dest_dim='level'):
+def merge_ghg_to_profile(profile_ds, ghg_ds, dest_dim='level', model_levels=True):
     """
     Just copies one profile (i.e. single lat,lon) of CH4 CO CO2 to an existing dataset
     """
@@ -830,17 +836,29 @@ def merge_ghg_to_profile(profile_ds, ghg_ds, dest_dim='level'):
     # elif np.all(np.diff(levels) < 0):
     #     ascending = False
 
+    if model_levels:
+        pressure_key = 'p'
+        level_key = 'model_level'
+    else:
+        pressure_key = 'pressure_level'
+        level_key = 'pressure_level'
+
     # sort by pressures instead of levels. sometimes level just blindly tracks the order of values in ERA5 profile
-    pressures = profile_ds['p'].values
+    pressures = profile_ds[pressure_key].values
     if np.all(np.diff(pressures) > 0):  # pressures ascending, so sorted from model level 1 to 137
         ascending = True
     elif np.all(np.diff(pressures) < 0):  # pressures descending, so array sorted from model level 137 to 1
         ascending = False
 
-    ghg_ds = ghg_ds.sortby(['model_level'], ascending=ascending)
+    ghg_ds = ghg_ds.sortby([level_key], ascending=ascending)
 
     for variable in ['ch4', 'co', 'co2']:
-        profile_ds = profile_ds.assign({variable: ([dest_dim,], ghg_ds[variable].values)})
+        if model_levels:
+            profile_ds = profile_ds.assign({variable: ([dest_dim,], ghg_ds[variable].values)})
+        else:
+            ghg_vals = ghg_ds[variable].values
+            ghg_vals_store = np.flip( np.interp(np.flip(pressures), np.flip(ghg_ds[pressure_key]), np.flip(ghg_vals)) )
+            profile_ds = profile_ds.assign({variable: ([dest_dim,], ghg_vals_store)})
     attrs_dict = {
         'ch4':{'units':'g kg-1', 'long_name':'methane'},
         'co':{'units':'g kg-1', 'long_name':'carbon monoxide'},
@@ -987,7 +1005,7 @@ def profile_from_era5_ensemble_spread(datetime_str, point=None, loc_range=None, 
     return profile_ds
 
 
-def total_column_water_vapour(wv_mmr, p_input, p_level_type='half_levels', input_units='g/kg', output_units='kg/m2'):
+def total_column_water_vapour(wv_mmr, p_input, p_level_type='half_levels', input_units='g/kg', output_units='kg/m2', wv_mmr_unc=None):
     # ERA5 in kg/m2, PREFIRE in mm
     # CODE HERE TO DEAL WITH PRESSURE IN ASCENDING/DESCENDING ORDER
     if np.all( np.diff(p_input) > 0 ):
@@ -1002,22 +1020,47 @@ def total_column_water_vapour(wv_mmr, p_input, p_level_type='half_levels', input
     elif input_units == 'kg/kg':
         unit_factor = 1.
 
+    if isinstance(wv_mmr_unc, (np.ndarray, list, xr.DataArray)):
+        calc_unc = True
+    else:
+        calc_unc = False
+
     if p_level_type == 'half_levels':
         
         layer_p_diffs = np.diff(p_input)
-        wv_mmr_layers = wv_mmr
+        wv_mmr_layers = wv_mmr.values
+        if calc_unc:
+            wv_mmr_unc_layers = wv_mmr_unc.values
 
     elif p_level_type == 'full_levels':
 
         layer_p_diffs = np.diff(p_input)
         wv_mmr_layers = np.convolve(wv_mmr, [0.5, 0.5], mode='valid')
+        if calc_unc:
+            # trying √2 corrective factor 
+            wv_mmr_unc_layers = 0.5 * np.sqrt(2) * np.sqrt( np.convolve(wv_mmr_unc**2, [1, 1], mode='valid') )
+            
+            # array_left_shift = np.zeros(wv_mmr.size+1)
+            # array_left_shift[:-1] = wv_mmr_unc ** 2
+            # array_right_shift = np.zeros(wv_mmr.size+1)
+            # array_right_shift[1:] = wv_mmr_unc ** 2
+            # wv_mmr_unc_layers = 0.5 * np.sqrt( array_left_shift + array_right_shift )[1:-1]
 
     tcwv = neg_factor * np.sum(unit_factor*wv_mmr_layers * 1.e2*layer_p_diffs) / g_0
 
+    if calc_unc:
+
+        tcwv_unc = (unit_factor / g_0) * np.sqrt( np.sum( (wv_mmr_unc_layers * 1.e2*layer_p_diffs)**2 ) )
+
     if output_units == 'mm':
         tcwv = 1.e3 * tcwv / rho_water
+        if calc_unc:
+            tcwv_unc = 1.e3 * tcwv_unc / rho_water
 
-    return tcwv
+    if calc_unc:
+        return tcwv, tcwv_unc
+    else:
+        return tcwv
 
 
 
@@ -1383,3 +1426,26 @@ def scale_sonde_h2o_in_hybrid(profile, scale_factor):
         pass
 
     return profile
+
+
+def moist_mean_molec_mass(spec_hum):
+    dry_air_mol_mass = 28.96
+
+    moist_air_mass = dry_air_mol_mass * ( 1 - spec_hum * (1 - h2o_mass_ratio) )
+    # output in g / mol
+
+    return moist_air_mass
+
+
+
+def gas_number_density(mass_mixing_ratio, gas_mol_mass, pressure, temperature, spec_hum):
+
+    moist_air_molec_mass = moist_mean_molec_mass(spec_hum)
+
+    total_air_number_density = np.divide( pressure, planck._k_B * temperature)
+
+    gas_number_density = 1.e-6 * total_air_number_density * mass_mixing_ratio * np.divide(moist_air_molec_mass, gas_mol_mass)
+
+    # result in cm-3
+    return gas_number_density
+

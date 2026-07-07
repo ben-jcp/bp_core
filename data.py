@@ -243,7 +243,12 @@ def dataset_time_subset(dataset, centre_time, time_window_width, time_label='tim
 def nondim_interp(dataset, interp_values, interp_key, var_keys, flip=True):
 
     dataset = dataset.sortby(interp_key, ascending=True)
-    interp_values = np.sort(interp_values)
+
+    if type(interp_values) in [np.ndarray]:
+        interp_values = np.sort(interp_values)
+
+    elif type(interp_values) in [xr.DataArray]:
+        pass # seems there's no automatic type-preserving way to do this
 
     results = []
     for var in var_keys:
