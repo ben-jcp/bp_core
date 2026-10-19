@@ -464,6 +464,16 @@ def apply_inst_function(wn, spec, instrument, unit_conv=1.e7, sc=None):
         output_wn = result['wn'].values
         output_spec = result['radiance'].values
 
+    elif instrument == 'AERI':
+
+        # this approximates the wavenumber pattern found in the groundbased_aeri_mcgill125_gault_20250128t000438z_20250128t235522z_001.nc file
+        # wavenumbers correct to within one part in 1e8: close enough
+        # propagation to radiance simulations in one test shows differences correct to within 1 part in 1e6
+        aeri_wn = np.arange(520.236847, 1800, 0.48214722)
+        aeri_sim_spec = unit_conv * band_conv_bjp(wn, spec, aeri_wn)
+        output_wn = aeri_wn
+        output_spec = aeri_sim_spec
+
     elif instrument == 'FORUM':
 
         result = apply_ils(spec, wn, unit_conv=unit_conv, calc_brightness_temp=False)
@@ -476,3 +486,58 @@ def apply_inst_function(wn, spec, instrument, unit_conv=1.e7, sc=None):
         output_spec = result['channel_radiance'].values
 
     return output_wn, output_spec
+
+
+
+"""
+Functions below are python adaptations of code provided by Benjamin Riot-Bretecher, August 2026
+"""
+
+def sinc_func_bjp(fwhm, dx):
+    """
+    Python adaptation of code provided by Benjamin Riot-Bretecher, August 2026
+    """
+    s = 1.2067 / fwhm
+
+    f = s * np.sinc(s * dx)
+
+    return f
+
+
+
+def band_conv_bjp(freq_orig, rad_orig, freq_band, MOPD=1.03702765, hw_factor=1.):
+    """
+    Python adaptation of code provided by Benjamin Riot-Bretecher, August 2026
+    """
+    fwhm = 1.2067 / (2*MOPD)
+
+    rad_band = np.zeros_like(freq_band)
+    nband = len(freq_band)  # number of frequency points
+    spec_res = (1 / (2 * MOPD))  # spectral resolution
+    window_half_width = hw_factor * 20 * spec_res  # halfwidth of truncation window, in cm-1
+
+    for iband in range(nband):
+        # if iband%100 == 0:
+            # print(f'calculating for band {iband},\t {freq_band[iband]:.1f}cm-1')
+
+        freq_cntr = freq_band[iband]
+        freq_idx = np.logical_and(
+            freq_orig > freq_cntr-window_half_width,
+            freq_orig < freq_cntr+window_half_width,
+            )
+        
+        if np.all(freq_idx == 0):
+            rad_band[iband] = np.nan
+        else:
+            freq_smpl = freq_orig[freq_idx]
+            rad_smpl = rad_orig[freq_idx]
+            idx_nan = ~np.isnan(rad_smpl) # value is one if radiance is NOT a NaN at this position
+            if np.all(idx_nan == 0): # reject bands where all of the things are zero
+                rad_band[iband] = np.nan
+            else:
+                freq_smpl = freq_smpl[idx_nan]
+                rad_smpl = rad_smpl[idx_nan]
+                rad_wght = sinc_func_bjp(fwhm, freq_smpl-freq_cntr)
+                rad_band[iband] = np.average(rad_smpl, weights=rad_wght)
+
+    return rad_band

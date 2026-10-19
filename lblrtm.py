@@ -525,6 +525,11 @@ def write_lblrtm_tape5(tape5_fp, config_fp, profile_dict=None, gas_input_dict=No
             #               39A1
             # MED PRIORITY FEATURE
             
+            # TODO: implement logic of this.
+            # NMOL_SCAL is largest molecule number to be scaled. user should input e.g. scaling_dict = {'h2o':{'type':'direct','factor':1.4}}
+            # options are no scaling, scale directly, scale to molec/cm2 column amount, scale to DU col amount, scale to vmr, scale to pwv (cm)
+            
+            # below has 8 entries per line, up to NMOL_SCAL
 
             # Record 1.3.b.(1..n) Profile Scaling Values    (only if NMOL_SCAL > 0;  otherwise omit)
             #    (XMOL_SCAL, M=1,mol_max)
@@ -562,7 +567,7 @@ def write_lblrtm_tape5(tape5_fp, config_fp, profile_dict=None, gas_input_dict=No
                 *items_from_config(cfg, ['PTHODL', 'LAYTOT'])
             ))
 
-
+                # TODO: put a notimplemented here
                 # Ignoring all options in Record 2.x (for no LBL Atmosphere)
 
         if lblatm_opt == 1:
@@ -605,6 +610,7 @@ def write_lblrtm_tape5(tape5_fp, config_fp, profile_dict=None, gas_input_dict=No
             #       If IBMAX < 0
             #       PBND(I), I=1, ABS(IBMAX) pressures of LBLRTM layer boundaries
             #        (8F10.3)
+            # TODO this needs a conditional: also TODO is generally making it less profile-oriented to handle single layer calculation
             file.write( util.wrap_str( vertical_coord , write_fmt='10.3f', n_cols=8) )
                     # NB MUST END WITH NEWLINE
 
@@ -722,6 +728,7 @@ def make_profile_dicts(profile, change_input_keys={}):
     """
     WARNING: THIS IS STILL A RELATIVELY DUMB FUNCTION
     IT WILL NOT PARSE GAS UNITS !!
+    IT WILL NOT DETECT WHICH GASES ARE PROFILE AND WHICH ARE COLUMN
     change_input_keys allows to set e.g. 'pressure' to be 'pressure_level' in the profile
     """
 
