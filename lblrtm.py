@@ -284,7 +284,7 @@ def get_lblrtm_config(config_fp, **kwargs):
         kwargs_alias['min_wn'] = wn_range[0]
         kwargs_alias['max_wn'] = wn_range[1]
 
-    # with this line, any variables submitted as LBLRTM kwargs will overrule config options
+    # with this line, any variables submitted as LBLRTM kwargs will overrule config file options
     config_info = config_info | kwargs_lblrtm
 
     # variables submitted as aliases add to or overwrite previously defined values
@@ -508,6 +508,7 @@ def write_lblrtm_tape5(tape5_fp, config_fp, profile_dict=None, gas_input_dict=No
             raise NotImplementedError()
 
 
+        # NOTE code assumes the conditions on the next line will always be met, some use cases might not do this
         # Record 1.3          LBL Specifications        (required if IHIRAC > 0; IAERSL > 0; IEMIT = 1; IATM = 1; or ILAS > 0; otherwise omit)
         #      V1,     V2,   SAMPLE,   DVSET,  ALFAL0,   AVMASS,   DPTMIN,   DPTFAC,   ILNFLG,     DVOUT,   NMOL_SCAL
         #    1-10,  11-20,    21-30,   31-40,   41-50,    51-60,    61-70,    71-80,     85,      90-100,         105
@@ -545,8 +546,6 @@ def write_lblrtm_tape5(tape5_fp, config_fp, profile_dict=None, gas_input_dict=No
             file.write('{:10.3E}{:10.3E}{:10.3E}{:10.3E}{:10.3E}{:10.3E}{:10.3E}    {:1s}\n'.format(
                 *items_from_config(cfg, ['TBOUND', 'SREMIS(1)', 'SREMIS(2)', 'SREMIS(3)', 'SRREFL(1)', 'SRREFL(2)', 'SRREFL(3)', 'surf_refl'])
             )) 
-            # IF UPLOOKING, ASSUME SPACE BLACKBODY. IF DOWNLOOKING, ASSUME LOWEST LEVEL TEMP BLACKBODY.
-            # OVERRIDE ALL WITH KWARGS
 
         if calc_result_opt == 3 and merge_opt in [40, 41, 42, 43]:
             # Record 1.5          Analytic Jacobian variable (required for Analytic Jacobian calculation: IEMIT=3 and IMRG=40,41,42 or 43)
@@ -559,18 +558,20 @@ def write_lblrtm_tape5(tape5_fp, config_fp, profile_dict=None, gas_input_dict=No
 
         if merge_opt in [35, 36, 40, 41, 45, 46]:
         # Record 1.6.a-d      Pathnames for OD files    (required if IMRG = 35-36, 40-41, 45-46; otherwise omit)
-        #                                                     NOTE:  IMRG = 35-36, 40-41, 45-46 require separate optical depth files for each laye
+        #                                                     NOTE:  IMRG = 35-36, 40-41, 45-46 require separate optical depth files for each layer
         #    PTHODL, LAYTOT
         #     1-55,  57-60
         #      A55, 1X, I4
             file.write('{:<55s} {:4d}\n'.format(
                 *items_from_config(cfg, ['PTHODL', 'LAYTOT'])
             ))
+        # NOTE that LAYTOT is ignored for IEMIT [calc_result_opt] = 3 i.e. Jacobian case
 
-                # TODO: put a notimplemented here
-                # Ignoring all options in Record 2.x (for no LBL Atmosphere)
+        if lblatm_opt == 0:
+            # Ignoring all options in Record 2.x (for no LBL Atmosphere)
+            raise NotImplementedError('Writer only supports input using LBLATM routine; it is not currently possible to specify in Record 2.x')
 
-        if lblatm_opt == 1:
+        elif lblatm_opt == 1:
             # Record 3.1       LBLATM  (atmosphere)         records applicable if LBLATM selected (IATM=1)
             #   MODEL,  ITYPE, IBMAX,    ZERO,  NOPRNT,  NMOL, IPUNCH, IFXTYP,   MUNITS,    RE, HSPACE,  VBAR,      REF_LAT
             #       5,     10,    15,      20,      25,    30,     35,  36-37,    39-40, 41-50,  51-60, 61-70,        81-90
@@ -581,69 +582,74 @@ def write_lblrtm_tape5(tape5_fp, config_fp, profile_dict=None, gas_input_dict=No
                 # internal_model_atm, path_type_opt, vertical_coord_flag * n_lvls, zero_small_abs, short_print_opt, n_species, layer_dat_write_opt,
                 # tape7_control_opt, tape7_gas_unit_opt, earth_radius, space_altitude, refraction_freq, reference_latitude
 
-        
-            # Record 3.2          Geometric Config, Slant path  (ITYPE = 2,3) (MODEL = 0-6)
-            #      H1,    H2,   ANGLE,   RANGE,   BETA,   LEN,     HOBS
-            #    1-10, 11-20,   21-30,   31-40,  41-50, 51-55,    61-70
-            #   F10.3, F10.3,   F10.3,   F10.3,  F10.3,    I5, 5X,F10.3
-            file.write('{:10.3f}{:10.3f}{:10.3f}{:10.3f}{:10.3f}{:5d}     {:10.3f}\n'.format(
-                *items_from_config(cfg, ['H1', 'H2', 'ANGLE', 'RANGE', 'BETA', 'LEN', 'HOBS'])
-            ))
-                # obs_alt, end_or_tan_alt, zen_angle, path_length, path_angle, tan_height_opt, sat_obs_height
+            if cfg['ITYPE'] in [2,3]:
+                # Record 3.2          Geometric Config, Slant path  (ITYPE = 2,3) (MODEL = 0-6)
+                #      H1,    H2,   ANGLE,   RANGE,   BETA,   LEN,     HOBS
+                #    1-10, 11-20,   21-30,   31-40,  41-50, 51-55,    61-70
+                #   F10.3, F10.3,   F10.3,   F10.3,  F10.3,    I5, 5X,F10.3
+                file.write('{:10.3f}{:10.3f}{:10.3f}{:10.3f}{:10.3f}{:5d}     {:10.3f}\n'.format(
+                    *items_from_config(cfg, ['H1', 'H2', 'ANGLE', 'RANGE', 'BETA', 'LEN', 'HOBS'])
+                ))
+                    # obs_alt, end_or_tan_alt, zen_angle, path_length, path_angle, tan_height_opt, sat_obs_height
 
 
-            # Record 3.2H         Horizontal Path               (ITYPE = 1) (MODEL = 0-6)
-            #      H1,      ,      ,  RANGEF
-            #    1-10,                31-40
-            #   F10.3,   10X,   10X,  F10.3
-            # LOW PRIORITY FEATURE
 
+                # Record 3.3.a        Default Layering Spec.    For IBMAX  = 0 (from RECORD 3.1)
+                # NOT USED
+                if cfg['IBMAX'] == 0:
+                    raise NotImplementedError('Writer only supports input user-defined layering; not currently possible to specify in Record 3.3.a')
 
-            # Record 3.3.a        Default Layering Spec.    For IBMAX  = 0 (from RECORD 3.1)
-            # NOT USED
+                elif cfg['IBMAX'] != 0:
+                    # Record 3.3.b        Level specification       For IBMAX != 0 (from RECORD 3.1)
+                    #       For IBMAX > 0  (from RECORD 3.1)
+                    #         ZBND(I), I=1, IBMAX   altitudes of LBLRTM layer boundaries
+                    #        (8F10.3)
+                    #       If IBMAX < 0
+                    #       PBND(I), I=1, ABS(IBMAX) pressures of LBLRTM layer boundaries
+                    #        (8F10.3)
+                    # TODO generally making it less profile-oriented to handle single layer calculation
+                    file.write( util.wrap_str( vertical_coord , write_fmt='10.3f', n_cols=8) )
+                        # NB MUST END WITH NEWLINE
 
+            if cfg['ITYPE'] == 1:
+                raise NotImplementedError('Horizontal path not yet implemented')
+                # Record 3.2H         Horizontal Path               (ITYPE = 1) (MODEL = 0-6)
+                #      H1,      ,      ,  RANGEF
+                #    1-10,                31-40
+                #   F10.3,   10X,   10X,  F10.3
+                # LOW PRIORITY FEATURE
 
-            # Record 3.3.b        Level specification       For IBMAX != 0 (from RECORD 3.1)
-            #       For IBMAX > 0  (from RECORD 3.1)
-            #         ZBND(I), I=1, IBMAX   altitudes of LBLRTM layer boundaries
-            #        (8F10.3)
-            #       If IBMAX < 0
-            #       PBND(I), I=1, ABS(IBMAX) pressures of LBLRTM layer boundaries
-            #        (8F10.3)
-            # TODO this needs a conditional: also TODO is generally making it less profile-oriented to handle single layer calculation
-            file.write( util.wrap_str( vertical_coord , write_fmt='10.3f', n_cols=8) )
-                    # NB MUST END WITH NEWLINE
+                # RECORD 3.3  not used for this case
 
-            
-            # Record 3.4          Profile Controls      User Defined Atmospheric Profile (MODEL = 0)
-            #  IMMAX,   HMOD
-            #      5,   6-29
-            #     I5,    3A8
-            file.write('{:5d}{:>24s}\n'.format(
-                vertical_coord_flag * n_lvls, profile_description
-            ))
-
-            for i in range(n_lvls):
-                # Record 3.5          Level input
-                #    ZM,    PM,    TM,    JCHARP, JCHART,   JLONG,   (JCHAR(M),M =1,39)
-                #  1-10, 11-20, 21-30,        36,     37,      39,     41  through  80
-                # E10.3, E10.3, E10.3,   5x,  A1,     A1,  1x, A1,     1x,    39A1
-
-                file.write('{:10.3f}{:10.3f}{:10.3f}     {:1s}{:1s} {:1s} {:<39s}\n'.format(
-                    altitude[i], pressure[i], temperature[i], jchar_p, jchar_t, j_long, jchar_molecules
+            if cfg['MODEL'] == 0:
+                # Record 3.4          Profile Controls      User Defined Atmospheric Profile (MODEL = 0)
+                #  IMMAX,   HMOD
+                #      5,   6-29
+                #     I5,    3A8
+                file.write('{:5d}{:>24s}\n'.format(
+                    vertical_coord_flag * n_lvls, profile_description
                 ))
 
-                # Record 3.6.1-N      Level Concentrations
-                #    VMOL(M), M=1, NMOL
-                #    8E10.3
-                #    VMOL(M) density of the M'th molecule in units set by JCHAR(K)
-                #    **NOTE** If JLONG=L, then VMOL(M) is in 8E15.8 format
+                for i in range(n_lvls):
+                    # Record 3.5          Level input
+                    #    ZM,    PM,    TM,    JCHARP, JCHART,   JLONG,   (JCHAR(M),M =1,39)
+                    #  1-10, 11-20, 21-30,        36,     37,      39,     41  through  80
+                    # E10.3, E10.3, E10.3,   5x,  A1,     A1,  1x, A1,     1x,    39A1
 
-                file.write( util.wrap_str( gas_profiles[i,:], write_fmt=gas_wrt_fmt, n_cols=8 ) )
-                    # NB MUST END WITH NEWLINE
+                    file.write('{:10.3f}{:10.3f}{:10.3f}     {:1s}{:1s} {:1s} {:<39s}\n'.format(
+                        altitude[i], pressure[i], temperature[i], jchar_p, jchar_t, j_long, jchar_molecules
+                    ))
 
-            #  REPEAT records 3.5 and 3.6.1 to 3.6.N for each of the remaining IMMAX boundaries
+                    # Record 3.6.1-N      Level Concentrations
+                    #    VMOL(M), M=1, NMOL
+                    #    8E10.3
+                    #    VMOL(M) density of the M'th molecule in units set by JCHAR(K)
+                    #    **NOTE** If JLONG=L, then VMOL(M) is in 8E15.8 format
 
+                    file.write( util.wrap_str( gas_profiles[i,:], write_fmt=gas_wrt_fmt, n_cols=8 ) )
+                        # NB MUST END WITH NEWLINE
+
+                #  REPEAT records 3.5 and 3.6.1 to 3.6.N for each of the remaining IMMAX boundaries
 
 
             if xsect_opt:
@@ -690,14 +696,19 @@ def write_lblrtm_tape5(tape5_fp, config_fp, profile_dict=None, gas_input_dict=No
                 # REPEAT records 3.8.1 to 3.8.N for each of the remaining LAYX boundaries
 
 
-                # Ignoring all options in Record 4.x (for LOWTRAN Aerosol specification)
+        # Ignoring all options in Record 4.x (for LOWTRAN Aerosol specification)
+        if aerosol_opt != 0:
+            raise NotImplementedError('Aerosol input not available in this reader')
 
 
-                # Ignoring all options in Record 5.x (for non-implemented Laser options)
+        # Ignoring all options in Record 5.x (for non-implemented Laser options)
 
 
         # NOTE if developing, that beyond this point there are repeated variable names e.g. JEMIT, NPTS
+        # so some workaround will be required with the specification input
 
+        if merge_opt in list(range(13, 19)) + list(range(23,29)) + [35, 36]:
+            raise NotImplementedError('Scan and filter merges not available in this reader')
         # Record 6.        Scan Merge                   ( for scanned sequential results; IMRG between 13 and 18; 35-36 )
         # Record 6.1    
 
@@ -705,6 +716,8 @@ def write_lblrtm_tape5(tape5_fp, config_fp, profile_dict=None, gas_input_dict=No
         # Record 7.2
         # Record 7.3-N
 
+        if cfg['ISCAN'] != 0:
+            raise NotImplementedError('Scanning of output spectra not available in this reader')
         # Record 8.1       Scan Function                        (ISCAN = 1)
 
         # Record 9.1       Interpolation Function               (ISCAN = 2)
@@ -717,6 +730,8 @@ def write_lblrtm_tape5(tape5_fp, config_fp, profile_dict=None, gas_input_dict=No
         # Record 10.1      FFT Scan                             (ISCAN = 3)
         # Record 10.2
 
+        if cfg['IFILTR'] == 1:
+            raise NotImplementedError('Filter function integration of spectra not available in this reader')
         # Record 11.1      Filter Function                      (IFILTR = 1)
         # Record 11.2
         # Record 11.3-N
@@ -724,12 +739,106 @@ def write_lblrtm_tape5(tape5_fp, config_fp, profile_dict=None, gas_input_dict=No
         file.write("%%%%%%%%")
 
 
-def make_profile_dicts(profile, change_input_keys={}):
+
+def match_units(unit_string):
+    chars = 'ABCDE'
+    potential_matches = [
+        'volume mixing ratio',  # ppmv
+        'number density',       # cm**-3
+        'mass mixing ratio',    # g kg**-1
+        'mass density',         # g m**-3
+        'partial pressure'      # mbar (=hPa)
+        ]
+
+    potential_chars = [char for char, match_string in zip(chars, potential_matches) if match_string in unit_string]
+
+    return potential_chars
+
+
+
+def parse_profile_gas(profile_ds:xr.Dataset, target:str, xsect=False, verbose=False):
+
+    # compiling list of potential keys for target gas in profile
+    key_options = [target.casefold()]
+    if target == 'H2O':
+        key_options += ['q', 'w']
+    elif target == 'O3':
+        key_options += ['ozone']
+
+    # checking if any are in the dataset
+    target_in_ds_with_key = [key for key in key_options if key in profile_ds.variables]
+
+    # ignore if none found
+    if len(target_in_ds_with_key)==0:
+        if verbose: print(f'{target} not found in profile dataset')
+        pass
+
+    else:
+        key_to_use = target_in_ds_with_key[0]
+        if verbose: print(f'{target} found in profile dataset with key {key_to_use}')
+
+        gas_data = profile_ds[key_to_use]
+
+        if gas_data.size > 1:
+            # profile gas
+            var_dict = {'profile':gas_data.values}
+
+        elif gas_data.size == 1:
+            # column amount gas
+            var_dict = {'amount':gas_data.values}
+
+        # trying to work out units
+        if not xsect:
+            if hasattr(gas_data, 'long_name'):
+                potential_jchars = match_units(gas_data.long_name)
+                
+                if len(potential_jchars) == 1:
+                    var_dict['units'] = potential_jchars[0]
+                    if verbose: print(f'Unit {var_dict['units']} allocated for {target}')
+                
+            if not ('units' in var_dict.keys()):
+                if hasattr(gas_data, 'units') or hasattr(gas_data, 'unit'):
+                    # scan 'units' or 'unit' attribute of variables, if it features 'parts per million' or 'ppm'
+                    # then assume it's volume mixing ratio
+                    try: 
+                        if 'parts per million' in gas_data.units or 'ppm' in gas_data.units:
+                            var_dict['units'] = 'A'
+                            if verbose: print(f'Unit {var_dict['units']} allocated for {target}')
+
+                    except AttributeError:
+                        if 'parts per million' in gas_data.unit or 'ppm' in gas_data.unit:
+                            var_dict['units'] = 'A'
+                            if verbose: print(f'Unit {var_dict['units']} allocated for {target}')
+
+            if not ('units' in var_dict.keys()):
+                # if nothing found after all these checks, just leave it as default
+                var_dict['units'] = ' '
+                print(f'Caution, No unit info found for {target}, leaving as default unit (ppmv)')
+
+        else:
+            # only option for cross-section molecules
+            var_dict['units'] = 'A'
+            if verbose: print(f'Unit {var_dict['units']} allocated for {target}')
+
+        return var_dict
+
+
+
+def make_profile_dicts(profile:xr.Dataset, change_input_keys:dict={}):
     """
-    WARNING: THIS IS STILL A RELATIVELY DUMB FUNCTION
-    IT WILL NOT PARSE GAS UNITS !!
-    IT WILL NOT DETECT WHICH GASES ARE PROFILE AND WHICH ARE COLUMN
-    change_input_keys allows to set e.g. 'pressure' to be 'pressure_level' in the profile
+    This function will try to make a set of input dicts to write_lblrtm_tape5 using the provided xarray Dataset.
+    It should be able to detect which gases are passed as column quantities and which are profile, and will make
+    a guess about the units based off attributes of the xarray profile Dataset.
+    Note that it will NOT attempt to convert units so ensure they are in the appropriate LBLRTM quantities for this.
+    (See table I of the LBLRTM instructions)
+    
+    In the Dataset, name gas variables as their chemical symbols, (or q, w for H2O), and include one of 
+    'volume mixing ratio', 'number density', 'mass mixing ratio', 'mass density', 'partial pressure'
+    in the .long_name variable attribute. Otherwise, including 'parts per million' or 'ppm' in the .units attribute will allow
+    the code to assume you are talking about volume mixing ratio. Failing that, the code will set to default unit (ppmv).
+
+    change_input_keys argument allows to set e.g. 'pressure' to be 'pressure_level' in the input profile dataset
+        i.e. change_input_keys = {'pressure':'pressure_level', 'altitude':'z'}
     """
 
     input_map = {
@@ -737,40 +846,46 @@ def make_profile_dicts(profile, change_input_keys={}):
         'temperature':'t',
         'altitude':'altitude',
 
-        'H2O':'q',
-        'O3': 'o3',
-        'CO': 'co',
-        'CO2': 'co2',
-        'CH4': 'ch4',
-        'N2O':'n2o',
-        'SF6':'sf6',
+        # 'H2O':'q',
+        # 'CO2': 'co2',
+        # 'O3': 'o3',
+        # 'N2O':'n2o',
+        # 'CO': 'co',
+        # 'CH4': 'ch4',
+        # 'SF6':'sf6',
 
-        'CCL4':'ccl4',
-        'CFC11':'cfc11',
-        'CFC12':'cfc12',
+        # 'CCL4':'ccl4',
+        # 'CFC11':'cfc11',
+        # 'CFC12':'cfc12',
     }
 
     keys = input_map | change_input_keys
 
     prof_dict = {variable: profile[keys[variable]].values for variable in ['pressure','temperature','altitude']}
 
-    profile_gases = ['H2O', 'O3', 'CO', 'CO2', 'CH4']
-    amount_gases = ['N2O', 'SF6']
-    xsect_gases = ['CCL4', 'CFC11', 'CFC12']
+    # profile_gases = ['H2O', 'O3', 'CO', 'CO2', 'CH4']
+    # amount_gases = ['N2O', 'SF6']
+    # xsect_gases = ['CCL4', 'CFC11', 'CFC12']
 
-    # gases supplied in profile
-    gas_dict = {variable: {'profile':profile[keys[variable]].values,
-                             'unit':'C'} for variable in profile_gases}
-    
-    # gases supplied as single column amount
-    for variable in amount_gases:
-        gas_dict[variable] = {'amount': profile[keys[variable]].values, 'unit':'A'}
+    # # gases supplied in profile
+    # gas_dict = {variable: {'profile':profile[keys[variable]].values,
+                            #  'unit':'C'} for variable in profile_gases}
 
-    try:
-        xsect_dict = {variable: {'amount':profile[keys[variable]].values,
-                                 'units':'A'} for variable in xsect_gases}
-    except KeyError:
-        xsect_dict = {}
+    gas_dict = {gas: parse_profile_gas(profile, gas) for gas in gas_list if parse_profile_gas(profile, gas)}
+
+    xsect_dict = {gas: parse_profile_gas(profile, gas, xsect=True) for gas in xsect_gas_list if parse_profile_gas(profile, gas, xsect=True)}
+    # # gases supplied as single column amount
+    # for variable in amount_gases:
+    #     gas_dict[variable] = {'amount': profile[keys[variable]].values, 'unit':'A'}
+    #     # unit A means values as volume mixing ratio = ppmv
+
+    # try:
+    #     xsect_dict = {variable: {'amount':profile[keys[variable]].values,
+    #                              'units':'A'} for variable in xsect_gases}
+    #     # unit A means values as volume mixing ratio = ppmv
+
+    # except KeyError:
+    #     xsect_dict = {}
 
     return prof_dict, gas_dict, xsect_dict
 
@@ -861,7 +976,7 @@ def slant_path_run(profile, wnum_range, angle, lbl_atm, sfc_type, save_dir, dw_o
     profile['obs_height'] = profile['obs_height'].assign_attrs({'long_name':'observation pressure level passed to LBLRTM',
                                                                 'unit':'hPa',})
 
-    profile_input, gas_input, xsect_input = make_profile_dicts(profile, make_dict_mod)
+    profile_input, gas_input, xsect_input = make_profile_dicts(profile, change_input_keys=make_dict_mod)
 
     using_xsect = len(xsect_input) > 0
 
