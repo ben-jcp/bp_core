@@ -1415,7 +1415,7 @@ def scale_sonde_h2o_in_hybrid(profile, scale_factor):
     if scale_factor != 1.:
 
         selected_level_mask = np.array([source_search in data_source.casefold() for data_source in profile['data_source'].values])
-        var_scaling_masked = (1. - scale_factor) * selected_level_mask + 1
+        var_scaling_masked = (scale_factor - 1.) * selected_level_mask + 1
         wat_vap_attrs = profile[var_to_scale].attrs
         profile[var_to_scale] = var_scaling_masked * profile[var_to_scale]
         profile[var_to_scale] = profile[var_to_scale].assign_attrs(wat_vap_attrs)
