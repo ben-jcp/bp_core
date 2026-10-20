@@ -108,6 +108,18 @@ alias_dict = {
 
 
 def read_tape12(filepath, load_transmittances=False):
+    """
+    Function to read Fortran formatted binary files as output by LBLRTM, including (but not limited to) TAPE12.
+
+    filepath:   path of file to be read
+    load_transmittances:    if set to True, the programme will try to load transmittances as well as radiances.
+
+    lblrtm_output:      xr.Dataset containing the information loaded from the file.
+
+    NOTE that this code currently naively assumes units for radiance calculations; the units output in the Dataset
+    will be incorrect for other kinds of calculations (e.g. optical depth, Jacobian)
+    """
+
 
     try:
         tape12_data = pf_rd.panel_file(filepath, do_load_data=True)
@@ -150,7 +162,17 @@ def read_tape12(filepath, load_transmittances=False):
     return lblrtm_output
 
 
-def run_LBLRTM(output_path, file_write=False, lblrtm_path=_lblpath, lbl_exe_name='lblrtm_v12.17_linux_gnu_dbl', move_tapes=True, rename_5_6=''):
+def run_LBLRTM(output_path:str, file_write=False, lblrtm_path=_lblpath, lbl_exe_name='lblrtm_v12.17_linux_gnu_dbl', move_tapes=True, rename_5_6=''):
+    """
+    Runs the LBLRTM executable.
+
+    output_path:    path to a directory where LBLRTM output will be stored
+    file_write:     if passed as a string, string will be written as an info file in the output_path directory. Ignored if False
+    lblrtm_path:    path to directory containing LBLRTM executable and files
+    lbl_exe_name:   file name of compiled LBLRTM executable
+    move_tapes:     if True, will move TAPE[5,6,7,11,12] files to output_path. Recommended to keep this on.
+    rename_5_6:     if set, this string will be appended to the TAPE5 and TAPE6 filenames to avoid overwriting
+    """
     starting_directory = os.getcwd()
     os.chdir(lblrtm_path)
 
@@ -239,6 +261,13 @@ def write_lbl_emiss(lbl_location,wn,emiss):
     return
 
 def read_config_file(config_filepath):
+    """
+    Read a config file at config_filepath with lines in the format:
+    KEYWORD     value   # comment denoted by # or ;
+    and convert it to a dictionary {KEYWORD:value}
+    Attempts to load in numbers as floats or ints.
+    """
+
     config_dict = {}
     with open(config_filepath) as f:
         for line in f:
@@ -271,6 +300,13 @@ def read_config_file(config_filepath):
 
 
 def get_lblrtm_config(config_fp, **kwargs):
+    """
+    Loads in configuration info from config_fp and merges with any kwargs submitted.
+    kwargs submitted with LBLRTM variable names will overwrite any values from the config file.
+    kwargs submitted with aliases will overwrite both of the above.
+
+    see alias_dict for a full list of aliases available, that are hopefully more descriptive than LBLRTM!
+    """
     
     config_info = read_config_file(config_fp)
 
@@ -309,6 +345,10 @@ def get_lblrtm_config(config_fp, **kwargs):
 
 
 def get_config_options(var_list, config_dict, **kwargs):
+    """
+    For a list of variables (LBLRTM names) in var_list, return the values in the config_dict.
+    Order of variables will be preserved.
+    """
 
     options = []
     for variable in var_list:
@@ -321,12 +361,26 @@ def get_config_options(var_list, config_dict, **kwargs):
 
 
 def items_from_config(config_dict, var_list):
-    
+    """
+    For a list of variables (LBLRTM names) in var_list, return the values in the config_dict.
+    Order of variables will be preserved.
+    """
     return [config_dict[var_name] for var_name in var_list]
 
 
 
 def merge_gas_profiles(species_dict, n_lvls, xsections=False, model_atm=0, n_gases_min=7,):
+    """
+    Merge the gases in species_dict into a matrix of shape (n_lvls, n_species) for writing
+    into LBLRTM TAPE5. Units info is also parsed and returned as output.
+
+    species_dict:   dict with entries {'GAS_NAME':{*further info*}, }
+    n_lvls:         number of atmospheric levels in LBLRTM simulation
+    xsections:      set as True if using LBLRTM 'cross-section' gases
+    model_atm:      set as 0-6 to access the default LBLRTM profiles for unspecified gases
+                    (0 = not simulated)
+    n_gases_min:    minimum number of gases to simulate (in order from Table I of instructions)
+    """
 
     if not xsections:
 
@@ -391,11 +445,25 @@ def merge_gas_profiles(species_dict, n_lvls, xsections=False, model_atm=0, n_gas
 
 
 
-def write_lblrtm_tape5(tape5_fp, config_fp, profile_dict=None, gas_input_dict=None, use_pressure_coords=True,
+def write_lblrtm_tape5(tape5_fp=_lblpath+'TAPE5', config_fp=_lblpath+'lblrtm_config', profile_dict=None, gas_input_dict=None, use_pressure_coords=True,
                        profile_description='', xsect_input_dict=None, xsect_prfl_description='', atm_gas_defaults=6, **kwargs):
     """
-    
+    Write a formatted LBLRTM input (TAPE5) text file to the specified filepath.
+
+    tape5_fp:               Destination filepath for tape5 file (should end with 'TAPE5')
+    config_fp:              Filepath to LBLRTM config text file
+    profile_dict:           Dict containing {'pressure':[], 'temperature':[], 'altitude':[]} (or similar) for the profile
+                                NB profile must be strictly in order of increasing altitude/decreasing pressure.
+    gas_input_dict:         Dict with entries {'GAS_NAME':{further info}, }
+    use_pressure_coords:    Use pressure as principal vertical coordinate if set to True, otherwise altitude.
+    profile_description:    String describing profile which will be written on TAPE5 (24 char limit)
+    xsect_input_dict:       Dict with entries {'XS_GAS_NAME':{further info}, }
+    xsect_prfl_description: String describing cross-section data which will be written on TAPE5 (50 char limit)
+    atm_gas_defaults:       LBLRTM preset atmosphere to be selected for unspecified gases (1-6, see instructions)
+
+    kwargs:         keyword arguments input either as LBLRTM variable names (see instructions) or aliases (see alias_dict)
     """
+
     pyfile_name = 'lblrtm.py'
 
     cfg = get_lblrtm_config(config_fp, **kwargs)
@@ -741,6 +809,9 @@ def write_lblrtm_tape5(tape5_fp, config_fp, profile_dict=None, gas_input_dict=No
 
 
 def match_units(unit_string):
+    """
+    Try to match unit description in unit_string to an LBLRTM JCHAR(M).
+    """
     chars = 'ABCDE'
     potential_matches = [
         'volume mixing ratio',  # ppmv
@@ -757,6 +828,10 @@ def match_units(unit_string):
 
 
 def parse_profile_gas(profile_ds:xr.Dataset, target:str, xsect=False, verbose=False):
+    """
+    Attempts to parse an xarray.Dataset containing the atmospheric profile into a dictionary ready to pass to
+    the TAPE5 writer.
+    """
 
     # compiling list of potential keys for target gas in profile
     key_options = [target.casefold()]
@@ -892,6 +967,24 @@ def make_profile_dicts(profile:xr.Dataset, change_input_keys:dict={}):
 
 def slant_path_run(profile, wnum_range, angle, lbl_atm, sfc_type, save_dir, dw_obs_alt=0.130, profile_src='',
                    profile_txt='', xsect_prof_txt='', test_str='', sonde_fp='', lbl_exe_loc=_lblpath):
+    """
+    Run LBLRTM in 'slant path' mode (ITYPE=2) with an input profile.
+
+    profile:    xarray.Dataset containing profile quantities
+    wnum_range: wavenumber range for LBLRTM simulation
+    angle:      viewing angle at observer, as offset from zenith (i.e. 0=looking up, 180=looking down)
+    lbl_atm:    for gases left unspecified, the standard LBLRTM profile to be used
+    sfc_type:   if angle > 90, (i.e. nadir-viewing from aircraft/space) will try to find a matching surface
+    save_dir:   directory in which to save simulations (note that function will add to this to make a matching directory)
+    dw_obs_alt: altitude (km) set for downwelling observations, should be height of radiometer above sea level
+    profile_src:    source of the profile data
+    profile_txt:    description
+    xsect_prof_txt: description
+    test_str:   string to be added to file names to indicate a test run
+    sonde_fp:   radiosonde data filepath (for info only)
+    lbl_exe_loc:    path to folder containing LBLRTM executable
+    """
+
 
     # if/elif to handle different specifications of input profile
     if 'p_lev' in profile_src.casefold():
