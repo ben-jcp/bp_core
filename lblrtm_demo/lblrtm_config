@@ -1,0 +1,100 @@
+# LBLRTM config file for use with TAPE5 writer write_lblrtm_tape5()
+# See https://www2.atmos.umd.edu/~ytma/lblrtm/lblrtm_instructions_frame.html for full LBLRTM instructions.
+# Values are entered next to LBLRTM names (space-separated), more descriptive aliases are also shown as inline comments.
+# Values in the config file can be overwritten by passing either the LBLRTM name or descriptive alias to the write_lblrtm_tape5() function as a keyword argument.
+# The alias will overwrite any supplied LBLRTM name value (from config file or kwargs).
+
+# Comments can be introduced by # or ;
+# Commented lines and omitted records are either defined on calling write_lblrtm_tape5() or have not yet been implemented.
+
+# Record 1.2
+IHIRAC  1   # hirac_opt
+ILBLF4  1   # lblf4_opt
+ICNTNM  1   # continuum_opt
+IAERSL  0   # aerosol_opt
+IEMIT   1   # calc_result_opt
+ISCAN   0   # scan_result_opt
+IFILTR  0   # filter_opt
+IPLOT   0   # plot_opt
+ITEST   0   # test_opt
+IATM    1   # lblatm_opt
+IMRG    0   # merge_opt
+ILAS    0   # 
+IOD     0   # optical_depth_opt
+IXSECT  0   # xsect_opt
+MPTS    0   # 
+NPTS    0   # 
+
+# Record 1.2.a
+XSELF   1.0   # h2o_self_cntm_scaling
+XFRGN   1.0   # h2o_frgn_cntm_scaling
+XCO2C   1.0   # co2_cntm_scaling
+XO3CN   1.0   # o3_cntm_scaling
+XO2CN   1.0   # o2_cntm_scaling
+XN2CN   1.0   # n2_cntm_scaling
+XRAYL   1.0   # rayleigh_scaling
+
+# Record 1.2.1
+# INFLAG
+# IOTFLG
+# JULDAT
+
+# Record 1.3
+# V1        # defined on run (min_wn = wn_range[0])
+# V2        # defined on run (max_wn = wn_range[1])
+SAMPLE  0   # samples_per_mean_hw
+DVSET   0   # dv_setting
+ALFAL0  0   # ave_coll_broad_hw
+AVMASS  0   # ave_mol_mass_doppler_hw
+DPTMIN  2.e-4   # line_rejection_od
+DPTFAC  1.e-3   # cont_od_rejection_factor
+ILNFLG  0   # line_rejection_recort_opt
+DVOUT   0   # dv_monochr_output_grid
+NMOL_SCAL   0   # n_molecules_scaled
+
+# Record 1.4
+# TBOUND        # defined on run (boundary_temp)
+SREMIS(1)   -1  # surf_emis_coeffs[0]
+SREMIS(2)   0   # surf_emis_coeffs[1]
+SREMIS(3)   0   # surf_emis_coeffs[2]
+SRREFL(1)   -1  # surf_refl_coeffs[0]
+SRREFL(2)   0   # surf_refl_coeffs[1]
+SRREFL(3)   0   # surf_refl_coeffs[2]
+surf_refl   s   # surf_refl_type
+
+# Record 1.6a
+PTHODL  ODint_  # od_filepath
+# LAYTOT        # defined on run (num_od_layers)
+
+# Record 3.1
+MODEL   0   # internal_model_atm
+ITYPE   2   # path_type_opt
+# IBMAX     # defined on run (vertical_coord_flag * n_lvls)
+ZERO    0   # zero_small_abs
+NOPRNT  0   # short_print_opt
+NMOL    7   # n_species
+IPUNCH  0   # layer_dat_write_opt
+IFXTYP  0   # tape7_control_opt
+MUNITS  0   # tape7_gas_unit_opt
+RE      0   # earth_radius
+HSPACE  100.# space_altitude
+VBAR    0   # refraction_freq
+REF_LAT 0   # reference_latitude
+
+# Record 3.2
+# H1        # defined on run (obs_alt)
+# H2        # defined on run (end_or_tan_alt)
+ANGLE   0.  # zen_angle
+RANGE   0   # defined on run (path_length)
+BETA    0   # defined on run (path_angle)
+LEN     0   # defined on run (tan_height_opt)
+HOBS    0   # defined on run (sat_obs_height)
+
+# Record 3.5
+JCHARP  A   # 
+JCHART  A   #
+JLONG   L   #
+
+# Record 3.7
+IPRFL   0
+IXSBIN  0
